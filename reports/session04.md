@@ -78,7 +78,7 @@ north_star:
 - Held-out evaluation with Phi-4-mini-instruct and utility metrics (DeBERTa-v3 NLI cross-encoder) not yet implemented
 - Multi-turn leakage history UI and stable pseudonym mapping not started
 - User studies must use synthetic scenarios only, without logging real sensitive messages. The scenario bank in PR #18 resolves the "what do we hand a participant" half; the recruiting half is still open.
-- **Team size and unassigned hats.** Three people have committed to this repo. The guidelines require four or five members, each owning a distinct hat; Users&Research and Operations currently have no owner, which is the direct cause of the missing user evidence above. Raising this with the instructor this week rather than in November.
+- **Hats were assigned late.** All five hats now have an owner (roster above), but Users&Research and Operations were only settled on 21 September — the last day of this session. That is the direct cause of the missing user evidence: nobody owned recruiting while there was still time to recruit. Not a headcount problem, a timing one, and it does not repeat next week.
 
 ## Next week's goal
 - Train ModernBERT-base 4-head classifier on train_p with calibration (temperature scaling + reliability diagram + ECE) and implement Integrated Gradients cue attribution to replace token-masking baseline. Generate first SFT dataset for QLoRA on Qwen3.5-0.8B.
@@ -95,10 +95,28 @@ north_star:
     - Wrote the lean canvas (`docs/lean-canvas.md`) — the guidelines require one and the repo had none, so previous "lean canvas changes" entries had nothing to diff against.
     - Built `src/product/risk_bands.py` + 16 tests: score-to-band translation with overall = max across attributes, unmeasured attributes omitted rather than defaulted to safe, and output phrased as attacker inference rather than fact about the user.
     - Wrote `docs/product/user_test_scenarios.md`: six synthetic scenarios, facilitator script, capture format — unblocks external user sessions without collecting anyone's real data.
-    - (evidence: #17, PR #18 — open for review; PR #14 review; branch protection settings on `main`)
+    - Reviewed PR #15 (Engineering), catching that the branch carried a pre-#14 copy of this report which would have reverted the north-star and taxonomy corrections; resolved it by taking `main` whole. Filed #21 for the reproducibility bug found in the same review.
+    - Audited the model stack and SynthPAI labels against what is actually published: the Qwen3.5 models named as our rewriter are vision-language models, and our frozen location taxonomy has four US-region classes for a dataset that is 7% US. Research only, no code (PR #22, open).
+    - Reviewed PRs #24 and #25 (roster) and consolidated them into this PR.
+    - (evidence: #17, PR #18; PR #19; PR #22 open; reviews on #14, #15, #24, #25; #21; branch protection settings on `main`)
 
-- Engineering contributions are filed in PR #16 and are not duplicated here.
-- Users&Research (unassigned): no contribution this week — see blockers.
+- Chatur Bandaru (Engineering):
+    - Set up the repo workflow: labels, the Session 04 milestone, and issues #2–#10 (including retroactive issues for Anna's Session 04 work, linked to PR #1).
+    - Fixed the live-test logging so a user session produces one clean CSV row per interaction, with participant and scenario IDs, `latency_s`, and an accept/edit/reject `decision` field. The pre-fix log was malformed — each interaction spanned two misaligned rows — and `data/logs/README.md` documents that honestly rather than deleting it.
+    - Made the profile-split and taxonomy artifacts reproducible via `scripts/make_artifacts.py` and committed them.
+    - Reviewed and approved PR #1.
+    - (evidence: PR #15, closes #8 and #9; PR #1 review; issues #2–#10. PR #16 was closed without merging, so its evidence-audit annotations have not landed — carried to Session 05.)
+
+- Yiwei Jin (Users&Research):
+    - Gave the approving reviews that unblocked PR #15 and PR #19 under the new branch-protection rule.
+    - Opened issue #20 and PRs #24 and #25 correcting the member roster, which is what identified that two hats had been left unassigned in the frontmatter.
+    - No external user session was run this week. See blockers.
+    - (evidence: reviews on #15 and #19; #20; PRs #24, #25 — cherry-picked into this PR with authorship preserved)
+
+- Bingqi Lian (Operations):
+    - Added as a repository collaborator and opened PR #23 against the member roster; it was closed in favour of #25 and its content is carried here.
+    - No other repo work this week, and the project board the Operations hat owns does not exist yet. Stating this plainly rather than padding the entry.
+    - (evidence: PR #23, closed)
 
 ## Lean canvas changes (if any)
 
