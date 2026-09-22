@@ -1,0 +1,119 @@
+# Verified model stack — base research, Session 04
+#
+# Every id below was checked against the Hugging Face API on 2026-09-21:
+# it exists, and the architecture / parameter count / dtype recorded here
+# come from its own config.json and safetensors index, not from memory.
+#
+# Nothing here is wired into the product yet. This file exists so that the
+# next person to pick up a component does not re-derive the same facts, and
+# so a wrong pick gets caught before someone spends a week on it.
+#
+# VRAM figures are weights only. Add optimizer state and activations for
+# training, and KV cache for generation. Budget roughly 3x the weight figure
+# for LoRA training at short sequence lengths.
+
+hardware:
+  # What the team actually has, per the README badge.
+  colab_t4:
+    vram_gb: 16
+    arch: Turing (SM75)
+    bf16: false          # Turing has no bfloat16. Use fp16 or 4-bit.
+    flash_attention_2: false   # requires Ampere (SM80+); use attn_implementation="sdpa"
+    note: >-
+      Every model below is bf16 on the hub. Loading with torch_dtype=bfloat16
+      on a T4 silently falls back or errors depending on the op. Pass
+      torch_dtype=torch.float16 explicitly, or load 4-bit.
+  colab_a100:
+    vram_gb: 40
+    arch: Ampere (SM80)
+    bf16: true
+    flash_attention_2: true
+
+  # The binding constraint, and it is not model size:
+  co_residency: >-
+    Risk model + rewriter + embedding model + NLI + adversary do not fit on a
+    T4 at once. The pipeline has to load and free sequentially
+    (del model; torch.cuda.empty_cache()) or run as separate stages over a
+    cached intermediate file. This is the "memory pressure" blocker in the
+    Session 04 report.
+
+risk_estimator:
+  chosen: answerdotai/ModernBERT-base
+  params: 149_607_936
+  vram_fp16_gb: 0.30
+  context: 8192
+  verified: encoder, ModernBertForMaskedLM, vocab 50368
+  why: >-
+    Right size and right shape for the job, and cheap enough to train
+    repeatedly. Fine-tune it — do not use it zero-shot. See
+    docs/methodology-review.md finding 2.
+  t4_notes: >-
+    ModernBERT is designed around FlashAttention-2, which a T4 cannot run.
+    Use attn_implementation="sdpa" and cap max_length at 512 (SynthPAI
+    comments are short); the 8192 context is not needed.
+  alternative:
+    id: answerdotai/ModernBERT-large
+    params: 395_798_016
+    when: only if base underfits after class weighting; 2.6x the cost
+
+rewriter:
+  chosen: Qwen/Qwen3-1.7B
+  params: 2_030_000_000
+  vram_fp16_gb: 4.06
+  vram_nf4_gb: 1.12
+  context: 40960
+  verified: Qwen3ForCausalLM, text-only, vocab 151936, chat template present
+  why: >-
+    Text-only causal LM, QLoRA-trainable inside a T4, and a real instruct
+    model. Replaces the Qwen3.5-0.8B / 2B in the design doc, which are
+    vision-language models — see finding 1.
+  gotcha: >-
+    Qwen3 has hybrid thinking. The chat template accepts enable_thinking;
+    leave it on and the model emits a <think> block before the rewrite,
+    which wrecks latency and has to be stripped. Pass enable_thinking=False.
+  local_first_option:
+    id: Qwen/Qwen3-0.6B
+    params: 751_632_384
+    vram_nf4_gb: 0.41
+    when: >-
+      The product claim is on-device inference. 0.6B is the honest candidate
+      for a laptop CPU; 1.7B is the quality ceiling to measure against.
+      Report latency for both before choosing.
+  currently_running: Qwen/Qwen2.5-0.5B-Instruct   # Session 04 baseline, 0.49B
+
+held_out_adversary:
+  chosen: microsoft/Phi-4-mini-instruct
+  params: 3_836_021_760
+  vram_fp16_gb: 7.67
+  vram_nf4_gb: 2.11
+  verified: Phi3ForCausalLM, vocab 200064, context 131072
+  why: >-
+    Different vendor, different pretraining, different tokenizer from the
+    rewriter. That independence is the whole point — it must never be used
+    to select rewrites, tune thresholds, or filter SFT data.
+  t4_notes: fits in fp16 for inference, but only with nothing else resident
+
+utility:
+  semantic_similarity:
+    id: sentence-transformers/all-MiniLM-L6-v2
+    note: >-
+      Already in use. Insufficient on its own — it scored 0.907 on a rewrite
+      that produced "123 an area, an area an area". See finding 6.
+  entailment:
+    id: cross-encoder/nli-deberta-v3-large
+    params: 434_000_000
+    vram_fp16_gb: 0.87
+    why: >-
+      Catches dropped constraints that cosine similarity cannot. Run both
+      directions: original->rewrite and rewrite->original.
+
+explicit_pii_baseline:
+  tool: microsoft/presidio
+  note: baseline only, not a model we train
+
+dataset:
+  id: RobinSta/SynthPAI
+  revision: b572595f543a51db789caddbb81a9fc4edc6c32f   # pin this; see issue #21
+  license: CC-BY-NC-SA-4.0        # non-commercial — fine for coursework
+  paper: https://arxiv.org/abs/2406.07217
+  size: 7823 comments / 300 profiles / 103 threads / single synthpai.jsonl
