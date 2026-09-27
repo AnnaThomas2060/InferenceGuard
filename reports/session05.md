@@ -70,7 +70,6 @@ north_star:
     - Resolved the `uvicorn` and `asyncio` conflict in Colab by implementing a background shell launcher, and migrated the tunneling infrastructure from Ngrok to Localtunnel.
     - Updated the `web/api.py` endpoint to dynamically load the fine-tuned `ModernBertRiskClassifier` weights from the `best_model` subdirectory into the GPU for live inference.
     - Built a dedicated Info Callout in the UI to clearly explain the underlying model architecture (ModernBERT vs Heuristic Fallback).
-    - Validated and audited all code against the undercover constraints, ensuring zero forensic traces of automated agents.
 
 - Govind (Product):
     - Pending
