@@ -35,7 +35,7 @@ north_star:
 
 ## Shipped this week
 - **Codebase Modularization**: Migrated the monolithic notebook into a proper Python architecture (`src/`, `web/`, `tests/`), unblocking CI/CD and independent feature development.
-- **ModernBERT Risk Classifier Fine-tuning**: Successfully trained the ModernBERT-base 4-head risk classifier on the SynthPAI dataset. Handled highly imbalanced labels with strong positive class weighting (e.g. Location 20.3x, Age 14.1x). Link to metrics: `artifacts/risk_model/training_summary.json`.
+- **ModernBERT Risk Classifier Fine-tuning**: Successfully trained the ModernBERT-base 4-head risk classifier on the SynthPAI dataset. Handled highly imbalanced labels with strong positive class weighting.
 - **SFT Data Generation Pipeline**: Built a Pareto Rejection Sampling pipeline to generate Supervised Fine-Tuning data for the Qwen3-1.7B rewriter. It successfully processed 7823 records, strictly filtering for train split profiles to guarantee zero test leakage, and exported high-confidence candidates to ChatML and Alpaca schemas.
 - **FastAPI Web UI with Localtunnel**: Developed a lightweight, interactive FastAPI web interface. Bypassed aggressive Colab ngrok bans by implementing dynamic Localtunnel routing, allowing real-time model interaction powered by the live A100 GPU.
 - **Adversarial Evaluation Harness**: Designed the evaluation harness utilizing Phi-4-mini to act as a zero-shot attribute guesser, alongside DeBERTa-v3 Bidirectional NLI for semantic preservation checking.
