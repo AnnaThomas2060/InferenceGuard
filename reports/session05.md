@@ -24,8 +24,14 @@ north_star:
     overall risk delta, taken as the max across attributes, with util_sim
     as the utility guardrail.
   value: >-
-    ModernBERT 4-head risk classifier achieved best_macro_f1 = 0.461 on the training split.
-    However, the overall risk delta target is pending. The Qwen3-1.7B LLM needs to be fine-tuned
+    ModernBERT 4-head risk classifier, measured on the held-out validation split
+    (45 profile-disjoint profiles), best epoch 3 of 3: macro F1 0.461, macro PR-AUC
+    0.457, macro ROC-AUC 0.853, macro balanced accuracy 0.750. Per attribute
+    (F1 / PR-AUC / validation positives): occupation 0.618 / 0.612 / 281,
+    education 0.534 / 0.564 / 146, location 0.462 / 0.484 / 56, age 0.232 / 0.169 / 83.
+    The checkpoint was selected on this same validation split, so treat it as an
+    optimistic estimate; the test split is untouched. However, the overall risk delta
+    target is pending. The Qwen3-1.7B LLM needs to be fine-tuned
     (Session 06) for meaningful privacy rewrites to measure actual risk reduction at scale.
   previous: >-
     Proxy only, 3 dev-test messages in data/logs/session04_usage_log.csv:
@@ -44,7 +50,17 @@ north_star:
 - **We have no qualifying user evidence this week, and we are not claiming any.** The focus was heavily on ML training pipelines and SFT dataset generation.
 
 ## Metrics snapshot
-- Risk Classifier (ModernBERT): `best_macro_f1` = 0.461.
+- Risk Classifier (ModernBERT), **validation split** (45 held-out profiles, profile-disjoint, seed 42), best epoch 3 of 3. `best_macro_f1` in `train_risk_model` is the best per-epoch **validation** macro F1, not a training-split number:
+
+  | attribute | val F1 | val PR-AUC | val ROC-AUC | val positives |
+  |---|---|---|---|---|
+  | occupation | 0.618 | 0.612 | 0.870 | 281 |
+  | education | 0.534 | 0.564 | 0.883 | 146 |
+  | location | 0.462 | 0.484 | 0.907 | 56 |
+  | age | 0.232 | 0.169 | 0.753 | 83 |
+  | **macro** | **0.461** | **0.457** | **0.853** | — |
+
+  Positive class weights used in training: location 20.4×, age 14.1×, education 9.0×, occupation 3.4×. Macro balanced accuracy 0.750. Two honest caveats: the saved checkpoint is the epoch with the highest validation macro F1, so the same split was used for selection and reporting, and validation loss rose across epochs (3.391 → 3.424 → 4.009) while macro F1 improved. The test split has not been scored. Evidence: `InferenceGuard_finetune.ipynb`, output of the *Finetune ModernBERT* cell.
 - SFT Data Generation: Processed 7823 total records. Retained 5232 strict training split records. Evaluated 5244 heuristic candidates, and exported 27 high-confidence pareto-optimal samples (low output is expected due to strict heuristic rules).
 - Measured on: The `RobinSta/SynthPAI` dataset.
 - Is this the same model that is running in the product? Yes, the fine-tuned `ModernBertRiskClassifier` is now dynamically loaded into the live `web/api.py` FastAPI backend. The rewriter is currently falling back to a heuristic rule system until Qwen is trained.
@@ -72,16 +88,24 @@ north_star:
     - Built a dedicated Info Callout in the UI to clearly explain the underlying model architecture (ModernBERT vs Heuristic Fallback).
 
 - Govind (Product):
-    - Pending
+    - PR #29 (merged 2026-09-27): fitted the user-facing risk band edges from validation data, per attribute, instead of hand-picked cutoffs (`src/product/thresholds.py`, `tests/test_thresholds.py`).
+    - PR #30 (merged 2026-09-27): composed the privacy report contract with the honesty rules enforced in code (`src/product/report.py`, `tests/test_report.py`).
+    - Reviewed PR #28 in full and requested changes (2026-09-27), raising five blockers, including a committed benchmark file that was simulation output and the split mislabelling corrected in this report's north star.
 
 - Chatur Bandaru (Engineering):
-    - Pending
+    - Corrected the north star and Metrics snapshot to report the **validation** macro F1 with per-attribute F1, PR-AUC and positive counts, traced to the committed `InferenceGuard_finetune.ipynb` output (issue #33, blocker 3 of the PR #28 review).
+    - Filled in this Individual contributions section from work visible in the repo, rather than leaving four of five members as "Pending" (issue #33, blocker 5).
+    - Reviewed and approved PR #32 (external user validation logs, 2026-09-27).
+    - Outstanding and not done this session: issue #21, `make_artifacts.py` split reproducibility, is assigned to Engineering and is still open.
 
 - Yiwei Jin (Users&Research):
-    - Pending
+    - Opened issue #31 and PR #32 (open as of 2026-09-27): usability sessions with five external, non-contributor participants (P01–P05) running the synthetic scenarios in `docs/product/user_test_scenarios.md`, with the raw logs committed as `data/logs/session05_user_test_logs.zip`.
+    - Reviewed, approved and merged PRs #29 and #30.
+    - Note: PR #32 is not merged, and its logs have not been audited by the team, so the User evidence section above still claims nothing from them. If it merges before submission, that section needs rewriting and this north star's "previous" line needs revisiting.
 
 - Bingqi Lian (Operations):
-    - Pending
+    - No Session 05 work is visible in the repo as of 2026-09-27: no commits, issues, pull requests or reviews since PR #23 (a roster edit opened 2026-09-22 and closed unmerged). `src/conversation/state.py` and `tests/test_operations_state.py` in this PR were written by Data&Eval, not by Operations.
+    - This entry needs Bingqi's own account of the session before submission; Engineering has not written one on their behalf.
 
 ## Lean canvas changes (if any)
 - No changes to the Lean Canvas this session. The product vision and distribution strategy established in Session 04 remain accurate.
