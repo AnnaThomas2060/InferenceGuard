@@ -168,9 +168,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Rewritten text and Presidio text
         if (risk.overall_band === "LOW") {
-            rewriteDisplay.innerHTML = "<em>No inferential markers detected. Original text preserved.</em><br/><br/>" + data.original_text;
+            rewriteDisplay.innerHTML = "<em>No inferential markers detected. Original text preserved.</em><br/><br/>" + escapeHtml(rawText);
+        } else if (data.rewrite_changed === false) {
+            // Session 06: participants read an unchanged message as protected.
+            rewriteDisplay.innerHTML = "<strong>No safe rewrite was found — your message is unchanged and is NOT protected.</strong>";
         } else {
             rewriteDisplay.textContent = data.rewritten_text || "No rewrite generated.";
+        }
+        if (data.rewrite_engine) {
+            const engineNote = document.createElement("small");
+            engineNote.textContent = "Engine: " + data.rewrite_engine;
+            rewriteDisplay.appendChild(document.createElement("br"));
+            rewriteDisplay.appendChild(engineNote);
         }
         presidioDisplay.textContent = data.presidio_text || "No baseline generated.";
 

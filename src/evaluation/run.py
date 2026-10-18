@@ -116,7 +116,14 @@ class StagedEvaluator:
     ) -> Dict[str, Any]:
         """Stage 3: Run independent Phi-4-mini adversary against Original, Presidio, and Rewrite."""
         logger.info("Executing Stage 3: Held-out adversary probing.")
-        attacker = Phi4MiniAttacker(load_model=self.use_heavy_models)
+        # strict: with heavy models requested, a Phi-4 load or generation
+        # failure must stop the run, not quietly produce regex numbers that
+        # would then be reported as held-out adversary results.
+        attacker = Phi4MiniAttacker(
+            load_model=self.use_heavy_models,
+            strict=self.use_heavy_models,
+        )
+        modes_seen = set()
 
         results = {
             "original_probes": [],
@@ -152,6 +159,7 @@ class StagedEvaluator:
 
                 # Probe original
                 orig_pred = attacker.predict_attribute(orig, attr)
+                modes_seen.add(orig_pred["mode"])
                 orig_succ = attacker.evaluate_success(orig_pred["prediction"], attr_gt)
                 if orig_succ:
                     orig_success_count += 1
@@ -159,6 +167,7 @@ class StagedEvaluator:
 
                 # Probe presidio
                 presidio_pred = attacker.predict_attribute(presidio_text, attr)
+                modes_seen.add(presidio_pred["mode"])
                 presidio_succ = attacker.evaluate_success(presidio_pred["prediction"], attr_gt)
                 if presidio_succ:
                     presidio_success_count += 1
@@ -166,15 +175,26 @@ class StagedEvaluator:
 
                 # Probe rewrite
                 rewrite_pred = attacker.predict_attribute(rew, attr)
+                modes_seen.add(rewrite_pred["mode"])
                 rewrite_succ = attacker.evaluate_success(rewrite_pred["prediction"], attr_gt)
                 if rewrite_succ:
                     rewrite_success_count += 1
                     hardness_stats[hardness]["rewrite"] += 1
 
+        attacker_model_id = attacker.model_name
+        if not modes_seen:
+            modes_seen.add(attacker.mode)
+        attacker_mode = modes_seen.pop() if len(modes_seen) == 1 else "mixed"
+
         del attacker
         clean_gpu_memory()
 
         asr_summary = {
+            "attacker_model_id": attacker_model_id,
+            "attacker_mode": attacker_mode,
+            # Only a run in which every probe came from the loaded model is a
+            # held-out adversary number. Heuristic or mixed runs are a smoke test.
+            "reportable_as_held_out": attacker_mode == "model",
             "total_probes": total_evaluations,
             "original_asr": round(orig_success_count / max(total_evaluations, 1), 4),
             "presidio_asr": round(presidio_success_count / max(total_evaluations, 1), 4),
@@ -204,6 +224,11 @@ class StagedEvaluator:
         rewrite_cosines = [it["utility_rewrite"]["cosine_similarity"] for it in processed]
         rewrite_utilities = [it["utility_rewrite"]["utility_score"] for it in processed]
         presidio_cosines = [it["utility_presidio"]["cosine_similarity"] for it in processed]
+        utility_backends = {
+            it[key].get("utility_backend", "fallback")
+            for it in processed
+            for key in ("utility_rewrite", "utility_presidio")
+        }
 
         final_report = {
             "sample_count": len(samples),
@@ -212,6 +237,11 @@ class StagedEvaluator:
                 "rewrite_mean_cosine": round(sum(rewrite_cosines) / max(len(rewrite_cosines), 1), 4),
                 "rewrite_mean_utility": round(sum(rewrite_utilities) / max(len(rewrite_utilities), 1), 4),
                 "presidio_mean_cosine": round(sum(presidio_cosines) / max(len(presidio_cosines), 1), 4),
+                "rewrite_degenerate_count": sum(1 for it in processed if it["utility_rewrite"].get("degenerate")),
+                "utility_backend": (
+                    next(iter(utility_backends)) if len(utility_backends) == 1
+                    else ("mixed" if utility_backends else None)
+                ),
             },
             "samples": processed,
         }
@@ -228,9 +258,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run staged InferenceGuard evaluation harness")
     parser.add_argument("-i", "--input_file", type=str, help="Optional evaluation dataset JSONL")
     parser.add_argument("-o", "--output_dir", type=str, default="reports", help="Output directory")
+    parser.add_argument(
+        "--use_heavy_models",
+        action="store_true",
+        help="Load Phi-4-mini, MiniLM and the NLI cross-encoder; fail instead of falling back",
+    )
     args = parser.parse_args()
 
-    evaluator = StagedEvaluator(output_dir=args.output_dir)
+    evaluator = StagedEvaluator(output_dir=args.output_dir, use_heavy_models=args.use_heavy_models)
 
     # Benchmark test set
     if args.input_file and Path(args.input_file).exists():

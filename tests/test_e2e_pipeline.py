@@ -14,7 +14,7 @@ from src.conversation.pseudonyms import PersistentPseudonymManager
 from src.conversation.state import ConversationTracker
 from src.evaluation.attacker import Phi4MiniAttacker
 from src.evaluation.presidio_baseline import PresidioBaseline
-from src.evaluation.utility import UtilityEvaluator
+from src.evaluation.utility import UtilityEvaluator, check_degeneracy
 from src.product.risk_bands import Band, summarize
 from src.rewriter.generate_training_data import (
     generate_candidate_rewrites_heuristic,
@@ -49,22 +49,23 @@ def test_scenario_s01_tech_worker_relocation():
     candidates = generate_candidate_rewrites_heuristic(input_text)
     assert len(candidates) > 0
 
+    # The heuristic's location regex swallows everything after "from Denver",
+    # leaving "I am moving locally." -- 4 of 21 tokens, the job gone. This test
+    # used to accept that as utility-preserving. Under the degeneracy rule it
+    # is rejected, so the sampler must return no rewrite rather than serve it.
+    assert all(check_degeneracy(input_text, c)["degenerate"] for c in candidates)
     selected = pareto_rejection_sample(
         original=input_text,
         candidates=candidates,
         max_risk_threshold=0.30,
         min_cosine_threshold=0.30,
     )
-    assert selected is not None
-    rewrite, meta = selected
+    assert selected is None
 
-    # Verify location dropped
-    assert "Denver" not in rewrite
-    assert "Seattle" not in rewrite
-    # Verify utility preserved
-    metrics = utility.compute_metrics(input_text, rewrite)
-    assert metrics["cosine_similarity"] >= 0.30
-    assert metrics["contradiction"] == 0.0
+    metrics = utility.compute_metrics(input_text, candidates[0])
+    assert metrics["degenerate"] is True
+    assert metrics["degenerate_reason"] == "length"
+    assert metrics["utility_score"] == 0.0
 
 
 def test_scenario_s02_university_student_coop():

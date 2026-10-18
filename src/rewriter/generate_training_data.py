@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
+from src.evaluation.utility import check_degeneracy
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
@@ -370,6 +372,9 @@ def pareto_rejection_sample(
       - overall risk < max_risk_threshold (0.30)
       - cosine_similarity >= min_cosine_threshold (0.82)
       - no unscrubbed explicit PII
+      - not degenerate under src.evaluation.utility.check_degeneracy, the same
+        rule the utility guardrail applies, so a degenerate candidate can never
+        become an SFT target or be served
 
     Among acceptable candidates, selects the one maximizing utility_score.
     """
@@ -377,6 +382,8 @@ def pareto_rejection_sample(
 
     for cand in candidates:
         if not cand or cand.strip() == original.strip():
+            continue
+        if check_degeneracy(original, cand)["degenerate"]:
             continue
 
         # Check hard PII
