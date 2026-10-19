@@ -13,7 +13,7 @@ import gc
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from src.evaluation.attacker import Phi4MiniAttacker
 from src.evaluation.presidio_baseline import PresidioBaseline
@@ -224,35 +224,154 @@ class StagedEvaluator:
         return final_report
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run staged InferenceGuard evaluation harness")
-    parser.add_argument("-i", "--input_file", type=str, help="Optional evaluation dataset JSONL")
-    parser.add_argument("-o", "--output_dir", type=str, default="reports", help="Output directory")
-    args = parser.parse_args()
+def run_comparative_benchmark(
+    split: str = "val",
+    methods: Sequence[str] = ("raw", "presidio", "prompt_baseline", "qlora_sft"),
+    input_file: Optional[str] = None,
+    output_dir: str = "reports",
+) -> Dict[str, Any]:
+    """Execute four-way comparative evaluation benchmark across privacy-preserving methods."""
+    from src.contracts.schemas import AttributeName, ConversationState, RewriteMode
+    from src.conversation.entity_map import DeterministicPseudonymManager
+    from src.evaluation.attacker import HeldOutPhi4Adversary
+    from src.evaluation.privacy_metrics import compute_method_metrics
+    from src.evaluation.utility_metrics import BidirectionalUtilityEvaluator
+    from src.rewriter.inference import QwenPrivacyRewriterService
 
-    evaluator = StagedEvaluator(output_dir=args.output_dir)
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
 
-    # Benchmark test set
-    if args.input_file and Path(args.input_file).exists():
-        with open(args.input_file, "r", encoding="utf-8-sig") as f:
-            demo_samples = [json.loads(line) for line in f]
+    records: List[Dict[str, Any]] = []
+    split_file = Path(input_file) if input_file else Path(f"data/splits/{split}.jsonl")
+    if split_file.exists():
+        with open(split_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
     else:
-        demo_samples = [
+        # High-coverage fallback samples conforming to SynthPAI scenarios
+        records = [
             {
                 "profile_id": "pers1",
-                "text": "I am 24 years old and work as a software engineer in Denver near Red Rocks.",
-                "ground_truth": {"age": "24", "location": "Denver", "occupation": "Software Engineer"},
+                "text": "I take the Green Line to campus every morning for my undergraduate co-op in Boston.",
+                "attributes": {"age": "18-24", "location": "us_northeast", "occupation": "student", "education": "undergraduate"},
             },
             {
                 "profile_id": "pers2",
-                "text": "Taking sound transit to Pike Place after my clinical shift at the hospital.",
-                "ground_truth": {"location": "Seattle", "occupation": "Nurse"},
+                "text": "Moving to Seattle, WA to start as a software engineer at Amazon, commuting via Sound Transit.",
+                "attributes": {"age": "25-34", "location": "us_west", "occupation": "technology", "education": "undergraduate"},
+            },
+            {
+                "profile_id": "pers3",
+                "text": "Finished my clinical rotation at Massachusetts General Hospital before defending my PhD thesis.",
+                "attributes": {"age": "25-34", "location": "us_northeast", "occupation": "healthcare", "education": "graduate_professional"},
             },
         ]
 
-    report = evaluator.run_pipeline(demo_samples)
-    print(json.dumps(report["adversary_evaluation"], indent=2))
+    pseudonym_mgr = DeterministicPseudonymManager()
+    utility_eval = BidirectionalUtilityEvaluator(load_models=False)
+    adversary = HeldOutPhi4Adversary(load_model=False)
+    rewriter = QwenPrivacyRewriterService()
+
+    comparative_results: Dict[str, Any] = {}
+
+    for method in methods:
+        logger.info(f"Evaluating method: {method} across {len(records)} samples")
+        method_predictions: Dict[AttributeName, List[str]] = {attr: [] for attr in AttributeName}
+        ground_truth: Dict[AttributeName, List[str]] = {attr: [] for attr in AttributeName}
+        utility_scores: List[Dict[str, float]] = []
+        latencies: List[float] = []
+
+        for rec in records:
+            orig_text = rec.get("text", "")
+            state = ConversationState(conversation_id=f"eval_{method}")
+
+            # Step 1: Text transformation by method
+            t0 = time.perf_counter()
+            if method == "raw":
+                transformed = orig_text
+            elif method == "presidio":
+                transformed, _, _ = pseudonym_mgr.pseudonymize_turn(orig_text, state)
+            elif method == "prompt_baseline":
+                pseudo, _, _ = pseudonym_mgr.pseudonymize_turn(orig_text, state)
+                transformed, _ = rewriter.protect(pseudo, None, state, mode=RewriteMode.PROMPT_BASELINE)
+            elif method == "qlora_sft":
+                pseudo, _, _ = pseudonym_mgr.pseudonymize_turn(orig_text, state)
+                transformed, _ = rewriter.protect(pseudo, None, state, mode=RewriteMode.BALANCED_SFT)
+            else:
+                transformed = orig_text
+
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            latencies.append(elapsed_ms)
+
+            # Step 2: Utility evaluation
+            util = utility_eval.evaluate_pair(orig_text, transformed)
+            utility_scores.append({
+                "bidirectional_entailment": util.bidirectional_entailment,
+                "semantic_similarity": util.semantic_similarity,
+                "contradiction_prob": util.contradiction_prob,
+            })
+
+            # Step 3: Adversarial inference
+            inferred = adversary.infer_attributes([transformed])
+            attrs_gt = rec.get("attributes", {})
+            for attr in AttributeName:
+                method_predictions[attr].append(inferred.get(attr, "UNKNOWN"))
+                ground_truth[attr].append(attrs_gt.get(attr.value, "UNKNOWN"))
+
+        metrics = compute_method_metrics(
+            records=records,
+            predictions_by_attr=method_predictions,
+            ground_truth_by_attr=ground_truth,
+            utility_scores=utility_scores,
+            latencies_ms=latencies,
+        )
+        comparative_results[method] = metrics
+
+    benchmark_payload = {
+        "split": split,
+        "sample_count": len(records),
+        "methods": comparative_results,
+    }
+
+    report_file = out_path / f"comparative_benchmark_{split}.json"
+    with open(report_file, "w", encoding="utf-8") as f:
+        json.dump(benchmark_payload, f, indent=2)
+
+    return benchmark_payload
+
+
+def main() -> None:
+    import time
+    parser = argparse.ArgumentParser(description="Run staged InferenceGuard evaluation harness")
+    parser.add_argument("-i", "--input_file", type=str, help="Optional evaluation dataset JSONL")
+    parser.add_argument("-o", "--output_dir", type=str, default="reports", help="Output directory")
+    parser.add_argument("--split", type=str, default="val", help="Data split to evaluate (val, test, train)")
+    parser.add_argument("--methods", nargs="+", default=["raw", "presidio", "prompt_baseline", "qlora_sft"], help="Methods to compare")
+    args = parser.parse_args()
+
+    print(f"Executing 4-way comparative benchmark on split '{args.split}' for methods: {args.methods}")
+    results = run_comparative_benchmark(
+        split=args.split,
+        methods=args.methods,
+        input_file=args.input_file,
+        output_dir=args.output_dir,
+    )
+    print("\n" + "=" * 78)
+    print(f"{'Method':<18} | {'Attacker Acc (v)':<16} | {'Abstain % (^)':<13} | {'Bi-NLI (^)':<11} | {'p95 Lat (ms)':<12}")
+    print("-" * 78)
+    for m, data in results["methods"].items():
+        print(
+            f"{m:<18} | {data['overall_attack_success_rate']:<16.4f} | "
+            f"{data['overall_attacker_abstention_rate']:<13.4f} | "
+            f"{data['mean_bidirectional_entailment']:<11.4f} | "
+            f"{data['p95_latency_ms']:<12.2f}"
+        )
+    print("=" * 78)
 
 
 if __name__ == "__main__":
+    import time
     main()
+

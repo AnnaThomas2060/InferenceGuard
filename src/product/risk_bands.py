@@ -71,6 +71,8 @@ class Cue:
     span: str
     attribute: str
     importance: float
+    start: int | None = None
+    end: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,11 +98,17 @@ class RiskSummary:
             "bands": {a: b.value for a, b in self.bands.items()},
             "scores": dict(self.scores),
             "cues": [
-                {"span": c.span, "attribute": c.attribute, "importance": c.importance}
+                {
+                    "span": c.span,
+                    "attribute": c.attribute,
+                    "importance": c.importance,
+                    **({"start": c.start, "end": c.end} if getattr(c, "start", None) is not None else {}),
+                }
                 for c in self.cues
             ],
             "leakage_delta": self.leakage_delta,
         }
+
 
 
 def summarize(

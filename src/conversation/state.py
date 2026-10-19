@@ -35,10 +35,14 @@ class TurnRiskRecord:
     leakage_delta: float
     is_breached: bool
     risk_band: str
+    residual_anonymity_capacity: float = 4.0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert record to dictionary."""
-        return asdict(self)
+        d = asdict(self)
+        d["residual_anonymity_capacity"] = self.residual_anonymity_capacity
+        return d
+
 
 
 def estimate_turn_scores(text: str) -> Dict[str, float]:
@@ -69,34 +73,57 @@ class ConversationTracker:
         history: Sequence[TurnRiskRecord],
         current_scores: Dict[str, float],
     ) -> Dict[str, float]:
-        """Compute cumulative probabilities: P_cum(A) = 1 - prod_{t=1}^T (1 - P_t(A))."""
+        """Compute cumulative probabilities with Bayesian evidence gating.
+
+        Bayesian Evidence Gating:
+        Background noise at or below NOISE_FLOOR (P_t <= 0.05) represents model baseline
+        uncertainty rather than genuine disclosure evidence. Gating this baseline out
+        prevents 20 innocent conversational turns from compounding into an unearned breach
+        alarm (1 - (1 - 0.05)^20 = 0.642).
+        """
+        NOISE_FLOOR = 0.05
         cumulative: Dict[str, float] = {}
 
         for attr in ATTRIBUTES:
-            prod_complement = 1.0 - current_scores.get(attr, 0.0)
+            curr_score = current_scores.get(attr, 0.0)
+            eff_curr = curr_score if curr_score > NOISE_FLOOR else 0.0
+            prod_complement = 1.0 - eff_curr
+
             for prev_turn in history:
                 prev_score = prev_turn.turn_scores.get(attr, 0.0)
-                prod_complement *= (1.0 - prev_score)
+                eff_prev = prev_score if prev_score > NOISE_FLOOR else 0.0
+                prod_complement *= (1.0 - eff_prev)
 
             cum_val = 1.0 - prod_complement
+            # If no active evidence above noise floor was ever disclosed, retain max baseline noise level
+            if cum_val == 0.0:
+                cum_val = max(
+                    curr_score,
+                    max((prev.turn_scores.get(attr, 0.0) for prev in history), default=0.0),
+                )
             cumulative[attr] = round(max(0.0, min(1.0, cum_val)), 4)
 
         return cumulative
 
-    def _compute_joint_entropy(self, cumulative_scores: Dict[str, float]) -> float:
-        """Compute remaining anonymity entropy across the 4 quasi-identifiers.
+    def _compute_residual_anonymity_capacity(self, cumulative_scores: Dict[str, float]) -> float:
+        """Compute Residual Anonymity Capacity (RAC) across the 4 quasi-identifiers.
 
-        Each undisclosed attribute contributes 1.0 bit of uncertainty.
-        As cumulative exposure probability P_cum(A) rises towards 1.0,
-        the attacker's uncertainty regarding the author's identity collapses towards 0.
+        Reframed from 'joint entropy' to prevent mathematical conflation with Shannon entropy.
+        Each undisclosed quasi-identifier attribute contributes 1.0 unit of anonymity capacity.
+        As cumulative exposure probability P_cum(A) rises towards 1.0, the residual capacity
+        collapses from 4.0 towards 0.0.
         """
-        entropy = 0.0
+        capacity = 0.0
         for attr in ATTRIBUTES:
             p_disclosed = cumulative_scores.get(attr, 0.0)
             uncertainty = max(0.0, 1.0 - p_disclosed)
-            entropy += uncertainty
+            capacity += uncertainty
 
-        return round(float(entropy), 4)
+        return round(float(capacity), 4)
+
+    def _compute_joint_entropy(self, cumulative_scores: Dict[str, float]) -> float:
+        """Backward-compatible alias for _compute_residual_anonymity_capacity."""
+        return self._compute_residual_anonymity_capacity(cumulative_scores)
 
     def add_turn(self, raw_text: str, session_id: str = "default") -> TurnRiskRecord:
         """Process a new conversational turn and compute updated dynamic risk metrics.
@@ -118,12 +145,13 @@ class ConversationTracker:
         turn_scores = self.risk_estimator_fn(raw_text)
         overall_turn_risk = max(turn_scores.values()) if turn_scores else 0.0
 
-        # Cumulative scores
+        # Cumulative scores with Bayesian evidence gating
         cumulative_scores = self._compute_cumulative_scores(history, turn_scores)
         overall_cumulative_risk = max(cumulative_scores.values()) if cumulative_scores else 0.0
 
-        # Joint entropy
-        joint_entropy = self._compute_joint_entropy(cumulative_scores)
+        # Residual Anonymity Capacity (formerly joint entropy)
+        residual_capacity = self._compute_residual_anonymity_capacity(cumulative_scores)
+        joint_entropy = residual_capacity
 
         # Leakage delta relative to previous turn
         if history:
@@ -132,10 +160,10 @@ class ConversationTracker:
         else:
             leakage_delta = round(overall_cumulative_risk, 4)
 
-        # Breach alert condition: cumulative risk >= high_risk_threshold or entropy < threshold
+        # Breach alert condition: cumulative risk >= high_risk_threshold or capacity < threshold
         is_breached = bool(
             overall_cumulative_risk >= self.high_risk_threshold
-            or joint_entropy < self.entropy_threshold
+            or residual_capacity < self.entropy_threshold
         )
 
         risk_band = band_for(overall_cumulative_risk).value
@@ -152,6 +180,7 @@ class ConversationTracker:
             leakage_delta=leakage_delta,
             is_breached=is_breached,
             risk_band=risk_band,
+            residual_anonymity_capacity=residual_capacity,
         )
 
         self.sessions[session_id].append(record)

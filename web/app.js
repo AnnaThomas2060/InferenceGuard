@@ -26,6 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const valEdu = document.getElementById("val-education");
 
     const originalDisplay = document.getElementById("original-display");
+    const pseudonymDisplay = document.getElementById("pseudonym-display");
     const rewriteDisplay = document.getElementById("rewrite-display");
     const presidioDisplay = document.getElementById("presidio-display");
 
@@ -69,8 +70,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const clientLatencySeconds = (requestEnd - requestStart) / 1000;
 
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || "Analysis request failed.");
+                let errMsg = "Analysis request failed (" + response.status + ").";
+                try {
+                    const err = await response.json();
+                    if (err && err.detail) errMsg = err.detail;
+                } catch (_) {}
+                throw new Error(errMsg);
             }
 
             const data = await response.json();
@@ -126,9 +131,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     function renderResults(rawText, data) {
-        const risk = data.risk_summary;
-        const turn = data.turn_record || {};
-        const utility = data.utility_metrics || {};
+        const safeData = data || {};
+        const risk = safeData.risk_summary || {};
+        const turn = safeData.turn_record || {};
+        const utility = safeData.utility_metrics || {};
 
         // Overall risk band and badge
         const band = risk.overall_band || "LOW";
@@ -142,11 +148,12 @@ document.addEventListener("DOMContentLoaded", () => {
             overallBadge.classList.add("badge-low");
         }
 
-        // Metrics
+        // Metrics: Residual Anonymity Capacity and Leakage Delta
         overallScore.textContent = Number(risk.overall || 0).toFixed(2);
-        primaryAttr.textContent = risk.primary ? risk.primary.toUpperCase() : "None";
-        jointEntropy.textContent = turn.joint_entropy !== undefined ? Number(turn.joint_entropy).toFixed(2) + " bits" : "4.00 bits";
-        leakageDelta.textContent = turn.leakage_delta !== undefined ? Number(turn.leakage_delta).toFixed(2) : "0.00";
+        primaryAttr.textContent = risk.primary ? String(risk.primary).toUpperCase() : "None";
+        const racVal = turn.residual_anonymity_capacity !== undefined ? turn.residual_anonymity_capacity : turn.joint_entropy;
+        jointEntropy.textContent = racVal !== undefined && racVal !== null ? Number(racVal).toFixed(2) + " bits" : "4.00 bits";
+        leakageDelta.textContent = turn.leakage_delta !== undefined && turn.leakage_delta !== null ? Number(turn.leakage_delta).toFixed(2) : "0.00";
 
         // Attribute bars
         const scores = risk.scores || {};
@@ -155,24 +162,47 @@ document.addEventListener("DOMContentLoaded", () => {
         setBar(barOcc, valOcc, scores.occupation || 0);
         setBar(barEdu, valEdu, scores.education || 0);
 
-        // Highlight Cues in original text
-        let highlighted = escapeHtml(rawText);
-        const cues = risk.cues || [];
-        cues.forEach(cue => {
-            if (cue.span && cue.span.length > 2 && !cue.span.startsWith("[")) {
-                const regex = new RegExp("(" + escapeRegExp(cue.span) + ")", "gi");
-                highlighted = highlighted.replace(regex, '<span class="highlight-cue">$1</span>');
-            }
-        });
-        originalDisplay.innerHTML = highlighted;
+        // Highlight Cues in original text using character span offsets when available
+        const cues = (risk.cues || []).filter(c => c && c.span && c.span.length >= 2 && !c.span.startsWith("["));
+        const validOffsetCues = cues.filter(c => typeof c.start === "number" && typeof c.end === "number" && c.start >= 0 && c.end <= rawText.length && c.start < c.end);
+
+        let highlighted = "";
+        if (validOffsetCues.length > 0) {
+            // Sort non-overlapping cues by start offset ascending
+            validOffsetCues.sort((a, b) => a.start - b.start);
+            let lastIdx = 0;
+            validOffsetCues.forEach(cue => {
+                if (cue.start >= lastIdx) {
+                    highlighted += escapeHtml(rawText.slice(lastIdx, cue.start));
+                    const tip = escapeHtml((cue.attribute || 'risk') + ' (' + Number(cue.importance || 0).toFixed(2) + ')');
+                    highlighted += `<span class="highlight-cue" title="${tip}">${escapeHtml(rawText.slice(cue.start, cue.end))}</span>`;
+                    lastIdx = cue.end;
+                }
+            });
+            highlighted += escapeHtml(rawText.slice(lastIdx));
+        } else {
+            highlighted = escapeHtml(rawText);
+            cues.forEach(cue => {
+                if (cue.span) {
+                    const regex = new RegExp("(" + escapeRegExp(cue.span) + ")", "gi");
+                    highlighted = highlighted.replace(regex, '<span class="highlight-cue">$1</span>');
+                }
+            });
+        }
+        originalDisplay.innerHTML = highlighted || "No input submitted.";
+
+        // Stage 1: Persistent Pseudonymization text
+        if (pseudonymDisplay) {
+            pseudonymDisplay.textContent = safeData.pseudonymized_text || safeData.presidio_text || "No pseudonymization generated.";
+        }
 
         // Rewritten text and Presidio text
         if (risk.overall_band === "LOW") {
-            rewriteDisplay.innerHTML = "<em>No inferential markers detected. Original text preserved.</em><br/><br/>" + data.original_text;
+            rewriteDisplay.innerHTML = "<em>No inferential markers detected. Original text preserved.</em><br/><br/>" + escapeHtml(safeData.original_text || rawText);
         } else {
-            rewriteDisplay.textContent = data.rewritten_text || "No rewrite generated.";
+            rewriteDisplay.textContent = safeData.rewritten_text || "No rewrite generated.";
         }
-        presidioDisplay.textContent = data.presidio_text || "No baseline generated.";
+        presidioDisplay.textContent = safeData.presidio_text || "No baseline generated.";
 
         // Utility metrics
         utilCosine.textContent = Number(utility.cosine_similarity || 0).toFixed(4);
@@ -195,13 +225,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function escapeHtml(str) {
-        return str
+        if (!str) return "";
+        return String(str)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     function escapeRegExp(str) {
-        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (!str) return "";
+        return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 });

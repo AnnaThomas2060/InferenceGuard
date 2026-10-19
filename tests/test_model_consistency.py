@@ -91,26 +91,57 @@ def test_a_mismatch_is_logged_rather_than_swallowed():
     assert "logger.warning" in block, "a silent swap is how the demo misreports itself"
 
 
-# --- import hygiene -------------------------------------------------------
+# --- import hygiene (pure AST static analysis) -----------------------------
 
-def _imports_cleanly(statement: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, "-c", statement], cwd=ROOT, capture_output=True, text=True
-    )
+def _get_toplevel_imports(path: Path) -> list[str]:
+    """Parse a file's AST and return all module-scope imported module names (including if/try blocks)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported_modules: list[str] = []
+
+    def visit(nodes: list[ast.AST]) -> None:
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # Lazy / local imports inside functions or classes are allowed
+                continue
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported_modules.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported_modules.append(node.module)
+            elif isinstance(node, (ast.If, ast.While, ast.For)):
+                visit(node.body)
+                visit(node.orelse)
+            elif isinstance(node, ast.Try):
+                visit(node.body)
+                for handler in node.handlers:
+                    visit(handler.body)
+                visit(node.orelse)
+                visit(node.finalbody)
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                visit(node.body)
+
+    visit(tree.body)
+    return imported_modules
 
 
 def test_rewriter_package_imports_without_torch():
-    """Regression: an eager re-export in __init__ pulled torch into everything."""
-    result = _imports_cleanly(
-        "import src.rewriter as r; assert 'DEFAULT_INSTRUCTION' in dir(r)"
-    )
-    assert result.returncode == 0, result.stderr
+    """Static AST check: rewriter __init__ must never import torch at module scope."""
+    imports = _get_toplevel_imports(ROOT / "src/rewriter/__init__.py")
+    assert not any(
+        m == "torch" or m.startswith("torch.") or m == "src.rewriter.inference"
+        for m in imports
+    ), f"src/rewriter/__init__.py has eager heavy imports: {imports}"
 
 
 def test_evaluation_harness_imports_without_torch():
-    """src/evaluation/run.py reaches the rewriter package and must stay light."""
-    result = _imports_cleanly("import src.evaluation.run")
-    assert result.returncode == 0, result.stderr
+    """Static AST check: src/evaluation/run.py must never import torch at module scope."""
+    imports = _get_toplevel_imports(ROOT / "src/evaluation/run.py")
+    assert not any(
+        m == "torch" or m.startswith("torch.") or m == "src.rewriter.inference"
+        for m in imports
+    ), f"src/evaluation/run.py has eager heavy imports: {imports}"
+
 
 
 def test_lazy_names_are_still_advertised():

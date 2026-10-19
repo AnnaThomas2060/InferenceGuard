@@ -2,9 +2,13 @@
 Fine-tune the Qwen LLM on the generated SFT dataset using QLoRA.
 """
 
+from __future__ import annotations
+
 import argparse
+from dataclasses import dataclass
 import logging
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import load_dataset
@@ -21,6 +25,119 @@ from src.rewriter.inference import DEFAULT_BASE_MODEL
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class RewriterQLoRAConfig:
+    """Configuration parameters for QLoRA fine-tuning with completion-only loss masking."""
+    base_model_name: str = DEFAULT_BASE_MODEL
+    train_jsonl_path: str = "data/sft/train_pareto_sft.jsonl"
+    val_jsonl_path: Optional[str] = "data/sft/val_pareto_sft.jsonl"
+    output_adapter_dir: str = "models/qwen35_08b_qlora_sft"
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    max_seq_length: int = 1024
+    per_device_train_batch_size: int = 4
+    gradient_accumulation_steps: int = 4
+    learning_rate: float = 2e-4
+    num_train_epochs: int = 3
+    warmup_ratio: float = 0.08
+    neftune_noise_alpha: float = 5.0
+    seed: int = 42
+
+
+def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
+    """Execute QLoRA fine-tuning with completion-only LM loss masking."""
+    from trl import DataCollatorForCompletionOnlyLM, SFTConfig
+
+    tokenizer = AutoTokenizer.from_pretrained(cfg.base_model_name, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
+
+    is_cuda = torch.cuda.is_available()
+    if is_cuda:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+        )
+        base_model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model_name,
+            quantization_config=bnb_config,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        base_model = prepare_model_for_kbit_training(base_model)
+    else:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model_name,
+            device_map="cpu",
+            trust_remote_code=True,
+        )
+
+    peft_config = LoraConfig(
+        r=cfg.lora_r,
+        lora_alpha=cfg.lora_alpha,
+        lora_dropout=cfg.lora_dropout,
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    )
+
+    data_files = {"train": cfg.train_jsonl_path}
+    if cfg.val_jsonl_path and Path(cfg.val_jsonl_path).exists():
+        data_files["validation"] = cfg.val_jsonl_path
+    dataset = load_dataset("json", data_files=data_files)
+
+    def format_row(example):
+        if "prompt" in example and "completion" in example:
+            return {"text": example["prompt"] + example["completion"]}
+        return example
+
+    dataset = dataset.map(format_row)
+
+    response_template = "<|im_start|>assistant\n"
+    collator = DataCollatorForCompletionOnlyLM(
+        response_template=response_template,
+        tokenizer=tokenizer,
+    )
+
+    sft_args = SFTConfig(
+        output_dir=cfg.output_adapter_dir,
+        dataset_text_field="text",
+        max_length=cfg.max_seq_length,
+        per_device_train_batch_size=cfg.per_device_train_batch_size,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        learning_rate=cfg.learning_rate,
+        num_train_epochs=cfg.num_train_epochs,
+        warmup_ratio=cfg.warmup_ratio,
+        lr_scheduler_type="cosine",
+        weight_decay=0.01,
+        logging_steps=10,
+        bf16=is_cuda and torch.cuda.is_bf16_supported(),
+        fp16=is_cuda and not torch.cuda.is_bf16_supported(),
+        neftune_noise_alpha=cfg.neftune_noise_alpha,
+        seed=cfg.seed,
+        report_to="none",
+    )
+
+    trainer = SFTTrainer(
+        model=base_model,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset.get("validation"),
+        peft_config=peft_config,
+        processing_class=tokenizer,
+        data_collator=collator,
+        args=sft_args,
+    )
+
+    trainer.train()
+    Path(cfg.output_adapter_dir).mkdir(parents=True, exist_ok=True)
+    trainer.model.save_pretrained(cfg.output_adapter_dir)
+    tokenizer.save_pretrained(cfg.output_adapter_dir)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="QLoRA Fine-tuning for InferenceGuard Rewriter")
     parser.add_argument("--model_name", type=str, default=DEFAULT_BASE_MODEL,
@@ -32,6 +149,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--max_length", type=int, default=1024, help="Maximum sequence length")
     return parser.parse_args()
+
 
 def get_formatting_func(tokenizer):
     def format_prompt(example):

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from src.conversation.pseudonyms import PersistentPseudonymManager
 from src.conversation.state import ConversationTracker
 from src.evaluation.presidio_baseline import PresidioBaseline
 from src.evaluation.utility import UtilityEvaluator
@@ -41,7 +42,9 @@ from src.rewriter.generate_training_data import (
     pareto_rejection_sample,
 )
 
+from src.schemas.user_study import Session06RecordSchema, write_session_record
 import torch
+from src.risk_model.explainer import IntegratedGradientsExplainer
 from src.risk_model.model import ModernBertRiskClassifier
 
 logger = logging.getLogger(__name__)
@@ -58,6 +61,7 @@ app.add_middleware(
 
 # Load trained ModernBERT if available
 risk_model = None
+explainer = None
 model_path = Path("artifacts/risk_model/best_model")
 if model_path.exists():
     try:
@@ -77,14 +81,16 @@ if model_path.exists():
             return scores
             
         risk_model = ml_risk_estimator
-        logger.info("ModernBERT loaded successfully!")
+        explainer = IntegratedGradientsExplainer(model=model, tokenizer=tokenizer, device=device)
+        logger.info("ModernBERT and IntegratedGradientsExplainer loaded successfully!")
     except Exception as e:
-        logger.warning(f"Failed to load ModernBERT: {e}")
+        logger.warning(f"Failed to load ModernBERT / explainer: {e}")
 
 # Global persistent services
 conversation_tracker = ConversationTracker(risk_estimator_fn=risk_model)
 presidio_baseline = PresidioBaseline()
 utility_evaluator = UtilityEvaluator()
+pseudonym_manager = PersistentPseudonymManager()
 
 logger.info("Initializing Qwen Rewriter Inference Engine...")
 try:
@@ -171,6 +177,90 @@ def extract_pii_spans(text: str) -> List[PiiSpan]:
     return spans
 
 
+CUE_PATTERNS: Dict[str, List[str]] = {
+    "age": [
+        r"\b\d{1,2}\s*(?:years old|yo|y/o)\b",
+        r"\b(?:in my (?:20s|30s|40s|50s|60s|70s|twenties|thirties|forties))\b",
+        r"\b(?:retired|pensioner|high school|college student|freshman|sophomore)\b",
+    ],
+    "location": [
+        r"\b(?:living in|moved to|commute to|transit in|downtown|suburbs of)\b",
+        r"\b(?:denver|seattle|austin|california|new york|boston|chicago|london|berlin|paris|tokyo)\b",
+        r"\b(?:[A-Z]{2}\b|\bco\b|\bwa\b|\btx\b|\bca\b|\bny\b)",
+    ],
+    "occupation": [
+        r"\b(?:work as|employed at|my boss|colleagues|software engineer|nurse|doctor|teacher|barista|lawyer)\b",
+        r"\b(?:tech company|startup|hospital|clinic|law firm|school district|consultancy)\b",
+    ],
+    "education": [
+        r"\b(?:bachelor'?s?|master'?s?|ph\.?d\.?|degree in|undergrad|grad school|alumni|major in)\b",
+        r"\b(?:university of|college of|mit|stanford|harvard|berkeley|carnegie mellon)\b",
+    ],
+}
+
+
+def extract_cues(text: str, scores: Dict[str, float]) -> List[Cue]:
+    """Extract concrete string spans matching inferential cues for highlighted UI display."""
+    found_cues: List[Cue] = []
+
+    # 1. First-class Integrated Gradients explainer when model is loaded
+    if explainer is not None and any(scores.get(a, 0.0) >= PROVISIONAL_CUE_IMPORTANCE_FLOOR for a in ATTRIBUTES):
+        try:
+            for attr in ATTRIBUTES:
+                if scores.get(attr, 0.0) >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
+                    ig_res = explainer.attribute(text, target_head=attr)
+                    cues_list = ig_res.get("cues", [])
+                    for c in cues_list:
+                        span_str = c.span
+                        start_pos = c.start if getattr(c, "start", None) is not None else text.lower().find(span_str.lower())
+                        end_pos = c.end if getattr(c, "end", None) is not None else (start_pos + len(span_str) if start_pos != -1 else None)
+                        found_cues.append(
+                            Cue(
+                                span=span_str,
+                                attribute=c.attribute,
+                                importance=round(c.importance, 2),
+                                start=start_pos if start_pos != -1 else None,
+                                end=end_pos,
+                            )
+                        )
+            if found_cues:
+                # Deduplicate and sort highest importance first
+                deduped = {}
+                for c in found_cues:
+                    k = (c.span.lower(), c.attribute)
+                    if k not in deduped or c.importance > deduped[k].importance:
+                        deduped[k] = c
+                return sorted(deduped.values(), key=lambda c: (-c.importance, c.span))
+        except Exception as exc:
+            logger.debug(f"IG cue extraction failed: {exc}")
+
+    # 2. Rule-based pattern matching fallback with exact character span offsets
+    seen_spans = set()
+    for attr, patterns in CUE_PATTERNS.items():
+        score = scores.get(attr, 0.0)
+        if score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
+            for pat in patterns:
+                for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                    span_str = m.group(0).strip()
+                    if span_str and len(span_str) >= 2 and span_str.lower() not in seen_spans:
+                        seen_spans.add(span_str.lower())
+                        found_cues.append(
+                            Cue(
+                                span=span_str,
+                                attribute=attr,
+                                importance=round(score, 2),
+                                start=m.start(),
+                                end=m.end(),
+                            )
+                        )
+    if not found_cues:
+        for attr, score in scores.items():
+            if attr in ATTRIBUTES and score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
+                found_cues.append(Cue(span=attr, attribute=attr, importance=round(score, 2)))
+    return found_cues
+
+
+
 class AnalyzeRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Raw text message to analyze")
     session_id: Optional[str] = Field(None, description="Optional conversation session ID")
@@ -179,8 +269,10 @@ class AnalyzeRequest(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     risk_summary: Dict[str, Any]
+    original_text: Optional[str] = None
     rewritten_text: str
     presidio_text: str
+    pseudonymized_text: Optional[str] = None
     utility_metrics: Dict[str, float]
     turn_record: Optional[Dict[str, Any]] = None
     privacy_report: Optional[Dict[str, Any]] = None
@@ -189,15 +281,31 @@ class AnalyzeResponse(BaseModel):
     is_win: Optional[bool] = None
 
 
+def to_canonical_entity_type(etype: str) -> str:
+    """Map detected PII entity type string to canonical pseudonym manager category."""
+    upper = etype.upper()
+    if "LOC" in upper:
+        return "LOC"
+    if "PER" in upper:
+        return "PER"
+    if "ORG" in upper:
+        return "ORG"
+    if "DATE" in upper or "TIME" in upper:
+        return "DATE"
+    return "ID"
+
+
 class RewriteRequest(BaseModel):
     text: str = Field(..., min_length=1)
     max_risk: float = Field(default=PROVISIONAL_MAX_RISK_THRESHOLD, ge=0.0, le=1.0)
+    session_id: Optional[str] = Field("default", description="Optional conversation session ID")
 
 
 class RewriteResponse(BaseModel):
     original_text: str
     rewritten_text: str
     utility_metrics: Dict[str, float]
+    pseudonymized_text: Optional[str] = None
 
 
 @app.get("/health")
@@ -223,10 +331,7 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
 
     # 3. Inferential risk estimation & cues
     raw_scores = turn_rec.turn_scores
-    cues_list: List[Cue] = []
-    for attr, score in raw_scores.items():
-        if score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
-            cues_list.append(Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2)))
+    cues_list: List[Cue] = extract_cues(text, raw_scores)
 
     # Delegate input privacy report composition to src.product.report.compose
     before_report = compose(
@@ -236,22 +341,33 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         leakage_delta=turn_rec.leakage_delta,
     )
 
-    # 4. Presidio baseline redaction
+    # 4. Presidio baseline redaction & multi-turn persistent pseudonymization
     presidio_text = presidio_baseline.redact(text)
+    known_entities = [
+        (text[s.start : s.end], to_canonical_entity_type(s.entity_type))
+        for s in input_spans
+        if s.end <= len(text)
+    ]
+    pseudonymized_text = pseudonym_manager.pseudonymize(
+        text, session_id=session_id, known_entities=known_entities
+    )
 
-    # 5. Rewriter candidate generation and rejection sampling
+    # 5. Two-Stage Rewriter: Hard PII scrubbed first via pseudonymization,
+    # then feed pseudonymized_text to Qwen rewriter / candidate generation
     if before_report.inferential_band == Band.LOW:
         rewritten_text = text
         after_report = before_report
     else:
+        source_text = pseudonymized_text if pseudonymized_text else text
         if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-            candidates = [qwen_rewriter.rewrite(text)]
+            candidates = [qwen_rewriter.rewrite(source_text)]
         else:
-            candidates = generate_candidate_rewrites_heuristic(text)
+            candidates = generate_candidate_rewrites_heuristic(source_text)
 
         selected = pareto_rejection_sample(
-            original=text,
+            original=source_text,
             candidates=candidates,
+            risk_model_fn=risk_model,
             max_risk_threshold=PROVISIONAL_MAX_RISK_THRESHOLD,
             min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
         )
@@ -260,28 +376,25 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
             rewritten_text, _ = selected
         else:
             if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-                heuristic_cands = generate_candidate_rewrites_heuristic(text)
+                heuristic_cands = generate_candidate_rewrites_heuristic(source_text)
                 selected_heur = pareto_rejection_sample(
-                    original=text,
+                    original=source_text,
                     candidates=heuristic_cands,
+                    risk_model_fn=risk_model,
                     max_risk_threshold=PROVISIONAL_MAX_RISK_THRESHOLD,
                     min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
                 )
                 if selected_heur is not None:
                     rewritten_text, _ = selected_heur
                 else:
-                    rewritten_text = presidio_text
+                    rewritten_text = source_text
             else:
-                rewritten_text = presidio_text
+                rewritten_text = source_text
 
         # Extract explicit PII spans on rewrite
         rewrite_spans = extract_pii_spans(rewritten_text)
         after_scores = estimate_privacy_risk(rewritten_text, risk_model_fn=risk_model)
-        after_cues: List[Cue] = [
-            Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2))
-            for attr, score in after_scores.items()
-            if attr in ATTRIBUTES and score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR
-        ]
+        after_cues: List[Cue] = extract_cues(rewritten_text, after_scores)
         after_report = compose(
             pii_spans=rewrite_spans,
             risk_scores=after_scores,
@@ -305,8 +418,10 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
 
     return AnalyzeResponse(
         risk_summary=before_report.inferential.to_dict(),
+        original_text=text,
         rewritten_text=rewritten_text,
         presidio_text=presidio_text,
+        pseudonymized_text=pseudonymized_text,
         utility_metrics=utility_metrics,
         turn_record=turn_rec.to_dict(),
         privacy_report=before_report.to_dict(),
@@ -323,13 +438,25 @@ def rewrite_text(request: RewriteRequest) -> RewriteResponse:
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
 
+    session_id = request.session_id or "default"
+    input_spans = extract_pii_spans(text)
+    known_entities = [
+        (text[s.start : s.end], to_canonical_entity_type(s.entity_type))
+        for s in input_spans
+        if s.end <= len(text)
+    ]
+    pseudo_text = pseudonym_manager.pseudonymize(
+        text, session_id=session_id, known_entities=known_entities
+    )
+    source_text = pseudo_text if pseudo_text else text
+
     if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-        candidates = [qwen_rewriter.rewrite(text)]
+        candidates = [qwen_rewriter.rewrite(source_text)]
     else:
-        candidates = generate_candidate_rewrites_heuristic(text)
+        candidates = generate_candidate_rewrites_heuristic(source_text)
 
     selected = pareto_rejection_sample(
-        original=text,
+        original=source_text,
         candidates=candidates,
         risk_model_fn=risk_model,
         max_risk_threshold=request.max_risk,
@@ -339,9 +466,9 @@ def rewrite_text(request: RewriteRequest) -> RewriteResponse:
         rewritten, _ = selected
     else:
         if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-            heuristic_cands = generate_candidate_rewrites_heuristic(text)
+            heuristic_cands = generate_candidate_rewrites_heuristic(source_text)
             selected_heur = pareto_rejection_sample(
-                original=text,
+                original=source_text,
                 candidates=heuristic_cands,
                 risk_model_fn=risk_model,
                 max_risk_threshold=request.max_risk,
@@ -350,16 +477,30 @@ def rewrite_text(request: RewriteRequest) -> RewriteResponse:
             if selected_heur is not None:
                 rewritten, _ = selected_heur
             else:
-                rewritten = presidio_baseline.redact(text)
+                rewritten = source_text
         else:
-            rewritten = presidio_baseline.redact(text)
+            rewritten = source_text
 
     utility = utility_evaluator.compute_metrics(text, rewritten)
     return RewriteResponse(
         original_text=text,
         rewritten_text=rewritten,
         utility_metrics=utility,
+        pseudonymized_text=pseudo_text,
     )
+
+
+@app.post("/log_session", summary="Validate and append user study session record")
+def log_session_endpoint(record: Session06RecordSchema) -> Dict[str, Any]:
+    """Validate and log session study record using write-time Pydantic schema validation."""
+    log_file = Path("docs/userstudy/session06_record.json")
+    saved = write_session_record(record, log_file)
+    return {
+        "status": "success",
+        "participant_id": saved.participant_id,
+        "scenario_id": saved.scenario_id,
+    }
+
 
 
 def launch_tunnel(

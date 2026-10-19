@@ -1,6 +1,6 @@
 <p align="center"> <img src="img/inferential_privacy.png" width="120" /> </p> <h1 align="center">InferenceGuard: Local-First Privacy Layer for Inferential Privacy</h1> <p align="center"> <strong>explicit PII removal to risk estimation to privacy-preserving rewrite</strong> </p> <p align="center">
 <a href="https://colab.research.google.com/drive/1l_hrmfaKqt69D_8QrEa3KCCYpPrWiG8y?usp=sharing" target="_blank"><img src="https://img.shields.io/badge/notebook-open%20in%20colab-F9AB00?style=flat&logo=googlecolab&logoColor=white" alt="Colab"></a> 
-<img src="https://img.shields.io/badge/hardware-A100%20%7C%20T4-76B900?style=flat&logo=nvidia&logoColor=white" alt="Hardware"> <img src="https://img.shields.io/badge/dataset-SynthPAI%207.8k-blue?style=flat" alt="Dataset"> <img src="https://img.shields.io/badge/models-ModernBERT%20%7C%20Qwen3.5-blueviolet?style=flat" alt="Models"> </p> <p align="center"> <a href="#what-it-is">What</a> • <a href="#setup">Setup</a> • <a href="#run-it">Run It</a> </p> 
+<img src="https://img.shields.io/badge/hardware-A100%20%7C%20T4-76B900?style=flat&logo=nvidia&logoColor=white" alt="Hardware"> <img src="https://img.shields.io/badge/dataset-SynthPAI%207.8k-blue?style=flat" alt="Dataset"> <img src="https://img.shields.io/badge/models-ModernBERT%20%7C%20Qwen2.5-blueviolet?style=flat" alt="Models"> </p> <p align="center"> <a href="#what-it-is">What</a> • <a href="#setup">Setup</a> • <a href="#run-it">Run It</a> </p> 
 
 ---
 
@@ -19,7 +19,7 @@ The core idea is to protect what text implies, not just what it explicitly says,
 ## Setup
 
 **Dataset:** SynthPAI `RobinSta/SynthPAI` - 300 synthetic profiles, 103 threads, 7,823 comments, CC-BY-NC-SA-4.0  
-**Models:** ModernBERT-base for risk, Qwen3.5-1.7B for rewriter, Phi-4-mini-instruct for held-out attacker, Presidio for explicit PII baseline  
+**Models:** ModernBERT-base for risk, Qwen2.5-1.5B-Instruct for rewriter, Phi-4-mini-instruct for held-out attacker, Presidio for explicit PII baseline  
 
 **Core Dependencies:**
 ```bash
