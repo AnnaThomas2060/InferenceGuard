@@ -1,12 +1,19 @@
 from pathlib import Path
 
+import copy
+
 import yaml
 
 from scripts.validate_experiment import (
     validate_config,
     validate_record,
+    validate_session08_reportability,
 )
-from scripts.summarize_experiment import build_summary
+from scripts.summarize_experiment import (
+    build_summary,
+    build_session08_evaluation_summary,
+    summarize_session08_reportability,
+)
 
 
 def make_config():
@@ -883,3 +890,398 @@ def test_config_with_pinned_commit_hash_passes_cleanly():
     assert result.ok
     assert not any("Dataset revision is still TBD" in w for w in result.warnings)
 
+
+
+# ---- Session 08 measurement-provenance tests ----
+
+def load_session08_config():
+    config_path = Path(
+        "configs/experiments/session08.yaml"
+    )
+
+    with config_path.open(
+        "r",
+        encoding="utf-8",
+    ) as f:
+        return yaml.safe_load(f)
+
+
+def test_session08_config_passes_reportability_gate():
+    config = load_session08_config()
+
+    result = validate_config(config)
+
+    assert result.ok
+    assert result.errors == []
+
+    assert (
+        config["experiment_type"]
+        == "heldout_evaluation"
+    )
+    assert (
+        config["schema_version"]
+        == "session08_v1"
+    )
+    assert (
+        config["dataset"]["split"]
+        == "test"
+    )
+    assert (
+        config["attacker"]["required_mode"]
+        == "model"
+    )
+
+
+def test_session08_validation_split_is_rejected():
+    config = copy.deepcopy(
+        load_session08_config()
+    )
+
+    config["dataset"]["split"] = (
+        "validation"
+    )
+
+    result = validate_config(config)
+
+    assert not result.ok
+    assert any(
+        "dataset.split='test'"
+        in error
+        for error in result.errors
+    )
+
+
+def test_session08_heuristic_attacker_is_rejected():
+    config = copy.deepcopy(
+        load_session08_config()
+    )
+
+    config["attacker"]["required_mode"] = (
+        "heuristic"
+    )
+
+    result = validate_config(config)
+
+    assert not result.ok
+    assert any(
+        "attacker.required_mode='model'"
+        in error
+        for error in result.errors
+    )
+
+
+def test_session08_missing_manifest_is_rejected():
+    config = copy.deepcopy(
+        load_session08_config()
+    )
+
+    config["split_provenance"][
+        "manifest_file"
+    ] = "data/manifests/does_not_exist.json"
+
+    result = validate_config(config)
+
+    assert not result.ok
+    assert any(
+        "Split manifest file not found"
+        in error
+        for error in result.errors
+    )
+
+
+def make_session08_good_report():
+    config = load_session08_config()
+
+    return {
+        "dataset_revision": config["dataset"]["revision"],
+        "split_name": "test",
+        "split_manifest_sha256": "a" * 64,
+        "git_commit_sha": "b" * 40,
+
+        "adversary_evaluation": {
+            "attacker_model_id": (
+                "microsoft/Phi-4-mini-instruct"
+            ),
+            "attacker_mode": "model",
+            "reportable_as_held_out": True,
+            "total_probes": 180,
+            "original_asr": 0.62,
+            "presidio_asr": 0.58,
+            "inferenceguard_asr": 0.31,
+        },
+
+        "samples": [
+            {
+                "profile_id": "pers155",
+                "risk_band": "HIGH",
+                "rewrite_engine": "qwen_adapter",
+                "rewrite_changed": True,
+                "utility_rewrite": {
+                    "utility_backend": "model",
+                    "cosine_similarity": 0.88,
+                    "nli_forward": 0.84,
+                    "nli_backward": 0.81,
+                    "contradiction": 0.04,
+                    "utility_score": 0.82,
+                },
+            }
+        ],
+    }
+
+
+def test_session08_reportable_result_passes():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    result = validate_session08_reportability(
+        report,
+        config,
+    )
+
+    assert result.ok
+    assert result.errors == []
+    assert result.warnings == []
+
+
+def test_session08_heuristic_attacker_blocks_privacy_claim():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["adversary_evaluation"][
+        "attacker_mode"
+    ] = "heuristic"
+
+    report["adversary_evaluation"][
+        "reportable_as_held_out"
+    ] = False
+
+    result = validate_session08_reportability(
+        report,
+        config,
+    )
+
+    assert not result.ok
+
+    error_text = " ".join(result.errors)
+
+    assert "attacker_mode='heuristic'" in error_text
+    assert "reportable_as_held_out must be true" in error_text
+
+
+def test_session08_fallback_utility_is_diagnostic_only():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["samples"][0][
+        "utility_rewrite"
+    ]["utility_backend"] = "fallback"
+
+    result = validate_session08_reportability(
+        report,
+        config,
+    )
+
+    # Privacy provenance can still be valid.
+    assert result.ok
+    assert result.errors == []
+
+    warning_text = " ".join(result.warnings)
+
+    assert "fallback utility scoring" in warning_text
+    assert "diagnostic only" in warning_text
+
+
+def test_session08_missing_measurement_provenance_fails():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    del report["git_commit_sha"]
+    del report["split_manifest_sha256"]
+    del report["samples"][0]["rewrite_engine"]
+
+    result = validate_session08_reportability(
+        report,
+        config,
+    )
+
+    assert not result.ok
+
+    error_text = " ".join(result.errors)
+
+    assert "git_commit_sha is required" in error_text
+    assert "split_manifest_sha256 is required" in error_text
+    assert "missing rewrite_engine provenance" in error_text
+
+
+def test_session08_reportability_summary_allows_good_run():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    summary = summarize_session08_reportability(
+        report,
+        config,
+    )
+
+    assert summary["overall_status"] == "PASS"
+    assert summary["privacy_claim"] == "PASS"
+    assert (
+        summary["model_based_nli_claim"]
+        == "PASS"
+    )
+    assert (
+        summary["rewrite_provenance"]
+        == "PASS"
+    )
+    assert (
+        summary[
+            "headline_privacy_metrics_allowed"
+        ]
+        is True
+    )
+    assert (
+        summary[
+            "model_nli_metrics_allowed"
+        ]
+        is True
+    )
+
+
+def test_session08_reportability_summary_blocks_bad_attacker():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["adversary_evaluation"][
+        "attacker_mode"
+    ] = "heuristic"
+
+    report["adversary_evaluation"][
+        "reportable_as_held_out"
+    ] = False
+
+    summary = summarize_session08_reportability(
+        report,
+        config,
+    )
+
+    assert (
+        summary["overall_status"]
+        == "BLOCKED"
+    )
+    assert (
+        summary["privacy_claim"]
+        == "BLOCKED"
+    )
+    assert (
+        summary[
+            "headline_privacy_metrics_allowed"
+        ]
+        is False
+    )
+
+
+def test_session08_reportability_summary_marks_fallback_nli_diagnostic():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["samples"][0][
+        "utility_rewrite"
+    ]["utility_backend"] = "fallback"
+
+    summary = summarize_session08_reportability(
+        report,
+        config,
+    )
+
+    assert summary["overall_status"] == "PASS"
+    assert summary["privacy_claim"] == "PASS"
+
+    assert (
+        summary["model_based_nli_claim"]
+        == "DIAGNOSTIC_ONLY"
+    )
+
+    assert (
+        summary[
+            "model_nli_metrics_allowed"
+        ]
+        is False
+    )
+
+    assert summary["warning_count"] == 1
+
+
+def test_session08_builder_exposes_headline_metrics_for_good_run():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["sample_count"] = 1
+    report["utility_summary"] = {
+        "rewrite_mean_cosine": 0.88,
+        "rewrite_mean_utility": 0.82,
+    }
+
+    summary = build_session08_evaluation_summary(
+        report,
+        config,
+    )
+
+    assert (
+        summary["reportability"]["overall_status"]
+        == "PASS"
+    )
+
+    assert (
+        summary["headline_metrics"]["privacy"][
+            "inferenceguard_asr"
+        ]
+        == 0.31
+    )
+
+    assert (
+        summary["headline_metrics"][
+            "model_based_utility"
+        ]["rewrite_mean_utility"]
+        == 0.82
+    )
+
+
+def test_session08_builder_hides_blocked_headline_metrics():
+    config = load_session08_config()
+    report = make_session08_good_report()
+
+    report["adversary_evaluation"][
+        "attacker_mode"
+    ] = "heuristic"
+
+    report["adversary_evaluation"][
+        "reportable_as_held_out"
+    ] = False
+
+    report["samples"][0][
+        "utility_rewrite"
+    ]["utility_backend"] = "fallback"
+
+    summary = build_session08_evaluation_summary(
+        report,
+        config,
+    )
+
+    assert (
+        summary["headline_metrics"]["privacy"]
+        is None
+    )
+
+    assert (
+        summary["headline_metrics"][
+            "model_based_utility"
+        ]
+        is None
+    )
+
+    # Diagnostic metrics remain available.
+    assert (
+        summary["diagnostic_metrics"]["privacy"][
+            "inferenceguard_asr"
+        ]
+        == 0.31
+    )

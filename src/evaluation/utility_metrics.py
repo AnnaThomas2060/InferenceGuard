@@ -62,6 +62,17 @@ class BidirectionalUtilityEvaluator:
         if load_models:
             self._load_models()
 
+    @property
+    def backend(self) -> str:
+        """Report whether utility metrics came from models or fallbacks."""
+        all_models_loaded = (
+            self.nli_model is not None
+            and self.nli_tokenizer is not None
+            and self.embed_model is not None
+            and self.embed_tokenizer is not None
+        )
+        return "model" if all_models_loaded else "fallback"
+
     def _load_models(self) -> None:
         """Load HuggingFace cross-encoder and embedding backbones."""
         try:

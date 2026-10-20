@@ -500,6 +500,15 @@ class HeldOutPhi4Adversary:
         else:
             self.model = None
 
+    @property
+    def mode(self) -> str:
+        """Report whether inference is using the real model or fallback."""
+        return (
+            "model"
+            if self.model is not None and self.tokenizer is not None
+            else "heuristic"
+        )
+
     def build_attack_prompt(self, messages: List[str]) -> str:
         """Construct structured prompt presenting conversation turns and allowed JSON schema."""
         import json
