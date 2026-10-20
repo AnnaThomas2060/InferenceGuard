@@ -1,0 +1,325 @@
+{
+  "created_at": "2026-10-17T22:27:12",
+  "command": "python scripts/benchmark_latency.py --rewriter qwen3-0.6b --device cpu --runs 3",
+  "hardware": {
+    "cpu": "Apple M4 Pro",
+    "cpu_count": 12,
+    "torch_threads": 8,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.11.14",
+    "torch": "2.14.1",
+    "transformers": "5.20.1",
+    "device": "cpu",
+    "gpu": null
+  },
+  "config": {
+    "rewriter": "qwen3-0.6b",
+    "model_id": "Qwen/Qwen3-0.6B",
+    "adapter_loaded": false,
+    "load_in_4bit": false,
+    "dtype": "torch.float32",
+    "rewriter_note": "base weights without a LoRA adapter: generation latency only, output quality not meaningful",
+    "risk_model": "answerdotai/ModernBERT-base backbone, untrained heads (latency only)",
+    "presidio_backend": "regex fallback",
+    "utility_backend": "fallback",
+    "runs": 3,
+    "warmup": 1,
+    "messages": 20,
+    "message_words_min": 12,
+    "message_words_max": 104,
+    "benchmark_note": "every message runs every stage; LOW-risk messages skip rewrite and rescore in /analyze"
+  },
+  "peak_rss_mb": 4226.0,
+  "stages_ms": {
+    "presidio": {
+      "p50": 0.057,
+      "p95": 0.101,
+      "mean": 0.062,
+      "min": 0.026,
+      "max": 0.124,
+      "n": 60
+    },
+    "risk_model": {
+      "p50": 25.793,
+      "p95": 37.886,
+      "mean": 26.389,
+      "min": 18.971,
+      "max": 43.454,
+      "n": 60
+    },
+    "rewrite": {
+      "p50": 1561.204,
+      "p95": 3494.751,
+      "mean": 1776.428,
+      "min": 590.249,
+      "max": 4335.03,
+      "n": 60
+    },
+    "rescore": {
+      "p50": 25.955,
+      "p95": 38.925,
+      "mean": 27.108,
+      "min": 18.498,
+      "max": 46.712,
+      "n": 60
+    },
+    "utility": {
+      "p50": 0.102,
+      "p95": 0.205,
+      "mean": 0.11,
+      "min": 0.043,
+      "max": 0.224,
+      "n": 60
+    },
+    "total": {
+      "p50": 1616.833,
+      "p95": 3570.846,
+      "mean": 1830.098,
+      "min": 630.475,
+      "max": 4412.487,
+      "n": 60
+    }
+  },
+  "per_message": [
+    {
+      "index": 0,
+      "words": 12,
+      "total_ms": [
+        634.818,
+        630.475,
+        711.058
+      ],
+      "band": "MEDIUM",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 1,
+      "words": 12,
+      "total_ms": [
+        773.706,
+        739.568,
+        821.189
+      ],
+      "band": "MEDIUM",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 2,
+      "words": 13,
+      "total_ms": [
+        738.234,
+        702.595,
+        751.341
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": true
+    },
+    {
+      "index": 3,
+      "words": 15,
+      "total_ms": [
+        800.596,
+        774.871,
+        979.372
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 4,
+      "words": 18,
+      "total_ms": [
+        908.932,
+        899.314,
+        953.95
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": true
+    },
+    {
+      "index": 5,
+      "words": 22,
+      "total_ms": [
+        996.211,
+        1111.903,
+        1041.254
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 6,
+      "words": 27,
+      "total_ms": [
+        1229.902,
+        1181.87,
+        1234.682
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 7,
+      "words": 30,
+      "total_ms": [
+        1390.485,
+        1332.753,
+        1404.894
+      ],
+      "band": "HIGH",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 8,
+      "words": 36,
+      "total_ms": [
+        1482.755,
+        1435.851,
+        1483.398
+      ],
+      "band": "HIGH",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 9,
+      "words": 36,
+      "total_ms": [
+        1529.993,
+        1454.223,
+        1509.853
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 10,
+      "words": 42,
+      "total_ms": [
+        1757.008,
+        1703.673,
+        1746.4
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 11,
+      "words": 42,
+      "total_ms": [
+        1905.396,
+        1836.5,
+        2014.09
+      ],
+      "band": "HIGH",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 12,
+      "words": 52,
+      "total_ms": [
+        2182.58,
+        2143.683,
+        2885.134
+      ],
+      "band": "MEDIUM",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 13,
+      "words": 47,
+      "total_ms": [
+        1745.238,
+        1837.26,
+        1944.854
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 14,
+      "words": 54,
+      "total_ms": [
+        2222.111,
+        2208.107,
+        2426.212
+      ],
+      "band": "HIGH",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 15,
+      "words": 62,
+      "total_ms": [
+        2647.023,
+        2588.002,
+        3020.147
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 16,
+      "words": 63,
+      "total_ms": [
+        2420.406,
+        2339.488,
+        2716.619
+      ],
+      "band": "MEDIUM",
+      "engine": "qwen_adapter",
+      "changed": true
+    },
+    {
+      "index": 17,
+      "words": 72,
+      "total_ms": [
+        2866.852,
+        2781.3,
+        2920.158
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 18,
+      "words": 88,
+      "total_ms": [
+        3386.764,
+        3537.07,
+        3487.729
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 19,
+      "words": 104,
+      "total_ms": [
+        4270.983,
+        4412.487,
+        4212.586
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    }
+  ]
+}

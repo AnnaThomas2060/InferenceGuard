@@ -1,0 +1,17 @@
+# What the test suite imports, pinned to the versions it was last run green
+# with (Session 07). torch is installed separately from the CPU-only index;
+# see .github/workflows/tests.yml.
+transformers==5.20.1
+peft==0.21.2
+trl==1.16.0
+accelerate==1.15.0
+datasets==5.1.0
+fastapi==0.143.3
+httpx==0.28.1
+pydantic==2.14.1
+numpy==2.4.6
+scipy==1.17.1
+PyYAML==6.0.3
+cryptography==50.0.2
+tqdm==4.70.1
+pytest==9.1.1

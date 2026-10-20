@@ -112,7 +112,11 @@ class StagedEvaluator:
     ) -> Dict[str, Any]:
         """Stage 3: Run independent Phi-4-mini adversary against Original, Presidio, and Rewrite."""
         logger.info("Executing Stage 3: Held-out adversary probing.")
-        attacker = Phi4MiniAttacker(load_model=self.use_heavy_models)
+        attacker = Phi4MiniAttacker(
+            load_model=self.use_heavy_models,
+            strict=self.use_heavy_models,
+        )
+        modes_seen = set()
 
         orig_success_count = 0
         presidio_success_count = 0
@@ -158,10 +162,18 @@ class StagedEvaluator:
                     rewrite_success_count += 1
                     hardness_stats[hardness]["rewrite"] += 1
 
+        attacker_model_id = getattr(attacker, "model_name", "microsoft/Phi-4-mini-instruct")
+        if not modes_seen:
+            modes_seen.add(getattr(attacker, "mode", "heuristic"))
+        attacker_mode = modes_seen.pop() if len(modes_seen) == 1 else "mixed"
+
         del attacker
         clean_gpu_memory()
 
         asr_summary = {
+            "attacker_model_id": attacker_model_id,
+            "attacker_mode": attacker_mode,
+            "reportable_as_held_out": attacker_mode == "model",
             "total_probes": total_evaluations,
             "original_asr": round(orig_success_count / max(total_evaluations, 1), 4),
             "presidio_asr": round(presidio_success_count / max(total_evaluations, 1), 4),
@@ -333,6 +345,7 @@ def main() -> None:
     parser.add_argument("--split", type=str, default="val", help="Data split to evaluate (val, test, train)")
     parser.add_argument("--methods", nargs="+", default=["raw", "presidio", "prompt_baseline", "qlora_sft"], help="Methods to compare")
     parser.add_argument("--limit", "--max_samples", type=int, default=None, dest="limit", help="Max samples to evaluate")
+    parser.add_argument("--use_heavy_models", action="store_true", help="Load heavy models; fail instead of falling back")
     args = parser.parse_args()
 
     print(f"Executing 4-way comparative benchmark on split '{args.split}' for methods: {args.methods}")

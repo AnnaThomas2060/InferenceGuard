@@ -199,10 +199,19 @@ document.addEventListener("DOMContentLoaded", () => {
         // Rewritten text and Presidio text
         if (risk.overall_band === "LOW") {
             rewriteDisplay.innerHTML = "<em>No inferential markers detected. Original text preserved.</em><br/><br/>" + escapeHtml(safeData.original_text || rawText);
+        } else if (data.rewrite_changed === false || safeData.rewrite_changed === false) {
+            // Session 06: participants read an unchanged message as protected.
+            rewriteDisplay.innerHTML = "<strong>No safe rewrite was found — your message is unchanged and is NOT protected.</strong>";
         } else {
             rewriteDisplay.textContent = safeData.rewritten_text || "No rewrite generated.";
         }
-        presidioDisplay.textContent = safeData.presidio_text || "No baseline generated.";
+        if (data.rewrite_engine || safeData.rewrite_engine) {
+            const engineNote = document.createElement("small");
+            engineNote.textContent = "Engine: " + (safeData.rewrite_engine || data.rewrite_engine);
+            rewriteDisplay.appendChild(document.createElement("br"));
+            rewriteDisplay.appendChild(engineNote);
+        }
+        presidioDisplay.textContent = safeData.presidio_text || data.presidio_text || "No baseline generated.";
 
         // Utility metrics
         utilCosine.textContent = Number(utility.cosine_similarity || 0).toFixed(4);

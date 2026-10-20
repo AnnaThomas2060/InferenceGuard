@@ -1,6 +1,6 @@
 # InferenceGuard — Lean Canvas
 
-**Owner:** Govind (Product) · **Last revised:** 2026-09-21 (Session 04) · **Status:** v1, first version
+**Owner:** Govind (Product) · **Last revised:** 2026-10-20 (Session 07) · **Status:** v2
 
 Revised weekly. Changes are summarised in the "Lean canvas changes" section of that
 week's report rather than tracked here, so this file always reads as current.
@@ -73,17 +73,39 @@ sessions should measure abandonment, not just rewrite quality.
 
 ## 5. Cost per user request
 
-Local-first, so there is no per-request API cost — the cost is the user's own compute
-and the patience it consumes. Current stack per request: ModernBERT-base zero-shot,
-Qwen2.5-0.5B-Instruct for the rewrite (up to 3 attempts under `rewrite_until_safe`), and
-all-MiniLM-L6-v2 for the similarity check.
+Local-first, so there is no per-request API cost. The cost is the user's own compute and
+the patience it consumes — and as of Session 07 we have measured it rather than feared it.
 
-**Marginal cash cost: ~$0.** **Latency: not yet measured**, and that is the number that
-matters. Three rewrite attempts through a 0.5B model on CPU is the obvious risk to the
-"before you send" premise. Instrumenting it is a Session 05 task.
+Apple M4 Pro, 12 cores, CPU only. Per request, end to end:
 
-This is a real advantage over a hosted competitor and we should say so plainly: at zero
-marginal cost, there is no usage cap to enforce and no reason to retain user text.
+| path | p50 | p95 | peak RSS |
+|---|---:|---:|---:|
+| heuristic rewriter | 53 ms | 80 ms | 1.0 GB |
+| Qwen3-0.6B rewriter | 1,617 ms | 3,571 ms | 4.2 GB |
+
+Per stage, the detector is effectively free — Presidio 0.06 ms, ModernBERT ~26 ms, the
+utility check 0.1 ms. **The rewriter is the entire cost**: 1,561 ms of the 1,617.
+
+**Marginal cash cost: ~$0.** That is still a real advantage over any hosted competitor,
+and worth saying plainly: at zero marginal cost there is no usage cap to enforce and no
+commercial reason to retain user text.
+
+**But the latency finding is uncomfortable and we should not soften it.** 1.6 s median
+and 3.6 s at the 95th percentile, holding 4.2 GB resident, on a high-end laptop, is not
+something that sits easily in front of a send button. The fast path is 30x quicker and
+produces exactly the output Session 06 participants rejected. **We do not yet have a
+configuration that is both fast enough and good enough**, and that is now the central
+product problem rather than a performance footnote.
+
+Three things follow. A 4.2 GB resident footprint rules out the browser-extension route
+on ordinary machines until it comes down. Latency has to be measured on mid-range
+hardware, not only an M4 Pro, before we quote it to anyone. And the rewrite may have to
+become opt-in per message rather than automatic, so the user pays the 1.6 s only when
+they have decided the message is worth it.
+
+(Evidence: `artifacts/latency/cpu-apple-m4-pro_2026-10-17_*.json`, PR #56. Measured on
+base Qwen3-0.6B weights with no LoRA adapter, so these are generation-latency figures
+only and say nothing about rewrite quality.)
 
 ## 6. North-star metric
 
@@ -132,16 +154,31 @@ attacker we did not optimise against. Everything measured so far uses the same e
 that drives the rewrite — a closed loop that can only flatter us. If leakage under
 Phi-4-mini-instruct is close to the unprotected baseline, the core claim fails.
 
-**Cheapest way to find out:** run the held-out attacker against the *existing* Session 04
-rewrites. No training, no new data, one evaluation script. If the number is bad we learn
-it in Session 05 instead of Session 09, and a negative result found early is reportable
-work rather than a late collapse.
+**Cheapest way to find out:** run the held-out attacker against the rewrites we already
+have. No training, no new data, one evaluation script. A negative result found early is
+reportable work; found late it is a collapse.
+
+**Session 07 added a second-order version of this risk, and it is the more frightening
+one.** We tried to escape the closed loop and found that the instrument meant to do it
+had never worked: the adversary decoded its own prompt as the model's answer and fell
+back to a regex without reporting it, and the success test counted `"CA"` as a correct
+guess for `"Chicago"`. Three measurement tools were wrong at once, and all three erred in
+the direction that flattered us.
+
+So the risk is no longer only *that protection may not survive an unseen attacker*. It is
+*that we may not be able to tell*. The mitigation is structural rather than analytical:
+every evaluation result now records which mode actually produced it, `strict=True` raises
+instead of degrading silently, and CI runs the suite on every pull request. A number
+whose provenance is not recorded should not be reported.
 
 **Second risk:** that nobody tolerates an extra step before sending. Cheapest test is
 measuring abandonment in the scheduled user sessions rather than asking people whether
 they would use it.
 
-**Third risk:** Qwen2.5-0.5B is not reliably capable of the rewrite. It already leaks
-entities the prompt told it to remove, which is why a regex scrub sits behind it. We are
-partly measuring a regex. Mitigation is the 2B fallback, at a cost to the local-first
-premise.
+**Third risk:** the rewriter is not reliably capable, and we cannot yet train it out.
+The SFT set is 27 pairs — not a dataset — so the model in the demo is base weights with a
+regex scrub behind it, which means we are partly measuring a regex. Session 06
+participants rejected its output for exactly the reasons that predicts: over-scrubbing,
+truncation, and one case where it returned the original text unchanged. Mitigation is to
+rebuild the SFT set with a teacher LLM, not to reach for a bigger base model, since a
+bigger model worsens the latency finding above.

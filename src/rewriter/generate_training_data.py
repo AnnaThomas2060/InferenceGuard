@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
+from src.evaluation.utility import check_degeneracy
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
@@ -252,7 +254,7 @@ def estimate_privacy_risk(
         r"\b(?:[A-Z]{2}\b|\bco\b|\bwa\b|\btx\b|\bca\b|\bny\b)",
     ]
     occupation_cues = [
-        r"\b(?:work as|employed at|my boss|colleagues|software engineer|nurse|doctor|teacher|barista|lawyer|internship|intern|consultant|designer|engineer)\b",
+        r"\b(?:work as|employed at|my boss|colleagues|software engineer|nurse|doctor|teacher|barista|lawyer)\b",
         r"\b(?:tech company|startup|hospital|clinic|law firm|school district|consultancy)\b",
         r"\b(?:grading papers|grading exams)\b",
     ]
@@ -413,71 +415,103 @@ def placeholder_cues(text: str) -> str:
 
 
 def generate_candidate_rewrites_heuristic(text: str) -> List[str]:
-    """Generate diverse candidate rewrites using rule-based transformations.
-
-    Produces a multi-tiered candidate pool across individual attributes,
-    paired attributes, full neutralization, role/org generalization,
-    and placeholder redaction to prevent starving Pareto rejection sampling.
-    """
+    """Generate diverse candidate rewrites using rule-based transformations."""
     candidates: List[str] = []
 
-    # 0. Base: Scrub hard PII (email, phone, ip, url)
-    scrubbed, _ = scrub_hard_pii(text)
-    candidates.append(scrubbed.strip())
+    # 1. Hard PII scrubbing + demographic neutralization
+    base_text, _ = scrub_hard_pii(text)
+    cand1 = base_text
+    # Neutralize age cues (including hyphenated like 21-year-old)
+    cand1 = re.sub(
+        r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b",
+        "an adult",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    # Neutralize location cues
+    cand1 = re.sub(
+        r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b",
+        "locally",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    cand1 = re.sub(
+        r"\b(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco)[,\sA-Z]*\b",
+        "the area",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    # Neutralize occupation cues and role phrases
+    cand1 = re.sub(
+        r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b",
+        "professional role",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    cand1 = re.sub(
+        r"\b(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer)\b",
+        "professional",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    cand1 = re.sub(
+        r"\b(?:tech startup|startup|tech company|firm|clinic|hospital)\b",
+        "an organization",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    # Neutralize education cues (including specific universities)
+    cand1 = re.sub(
+        r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+[A-Za-z\s]+(?:University|College|Mellon|MIT)?\b",
+        "completing higher education",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    cand1 = re.sub(
+        r"\b(?:undergrad|Carnegie Mellon|MIT|Stanford|Harvard|Berkeley)\b",
+        "higher education",
+        cand1,
+        flags=re.IGNORECASE,
+    )
+    candidates.append(cand1.strip())
 
-    # 1. Single attribute neutralizations
-    cand_age = neutralize_age_cues(scrubbed)
-    candidates.append(cand_age.strip())
+    # 2. Generalization rewrite: replaces role and organization with general terms
+    cand2 = re.sub(r"\bmy\s+(?:boss|manager|director|colleagues)\b", "colleagues", cand1, flags=re.IGNORECASE)
+    cand2 = re.sub(r"\bwork as\s+(?:a\s+|an\s+)?\w+\b", "work in my role", cand2, flags=re.IGNORECASE)
+    cand2 = re.sub(r"\bwork in my profession\b", "work in my role", cand2, flags=re.IGNORECASE)
+    candidates.append(cand2.strip())
 
-    cand_loc = neutralize_location_cues(scrubbed)
-    candidates.append(cand_loc.strip())
+    # 3. Privacy-focused rewrite
+    cand3 = re.sub(r"\ban adult\b", "someone", cand2, flags=re.IGNORECASE)
+    cand3 = re.sub(r"\b\s+", " ", cand3).strip()
+    candidates.append(cand3)
 
-    cand_occ = neutralize_occupation_cues(scrubbed)
-    candidates.append(cand_occ.strip())
+    if check_degeneracy(text, cand1)["degenerate"]:
+        return list(dict.fromkeys(c for c in candidates if c))
 
-    cand_edu = neutralize_education_cues(scrubbed)
-    candidates.append(cand_edu.strip())
+    # Cand 4: placeholder tags derived from base
+    cand4 = re.sub(r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b", "[AGE]", base_text, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "living in [LOCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco)[,\sA-Z]*\b", "[LOCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work as [OCCUPATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer)\b", "[OCCUPATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+[A-Za-z\s]+(?:University|College|Mellon|MIT)?\b", "after getting my [EDUCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:undergrad|Carnegie Mellon|MIT|Stanford|Harvard|Berkeley)\b", "[EDUCATION]", cand4, flags=re.IGNORECASE)
+    candidates.append(cand4.strip())
 
-    # 2. Attribute pair neutralizations
-    cand_age_loc = neutralize_location_cues(cand_age)
-    candidates.append(cand_age_loc.strip())
+    # Cand 5: age + occupation
+    cand5 = re.sub(r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b", "an adult", base_text, flags=re.IGNORECASE)
+    cand5 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work in a role", cand5, flags=re.IGNORECASE)
+    cand5 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "locally", cand5, flags=re.IGNORECASE)
+    candidates.append(cand5.strip())
 
-    cand_occ_edu = neutralize_education_cues(cand_occ)
-    candidates.append(cand_occ_edu.strip())
+    # Cand 6: occupation + education
+    cand6 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work in a professional role", base_text, flags=re.IGNORECASE)
+    cand6 = re.sub(r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+[A-Za-z\s]+(?:University|College|Mellon|MIT)?\b", "completing higher education", cand6, flags=re.IGNORECASE)
+    cand6 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "locally", cand6, flags=re.IGNORECASE)
+    candidates.append(cand6.strip())
 
-    cand_loc_occ = neutralize_occupation_cues(cand_loc)
-    candidates.append(cand_loc_occ.strip())
-
-    # 3. Full multi-attribute neutralization
-    cand_all = neutralize_education_cues(neutralize_occupation_cues(cand_age_loc))
-    candidates.append(cand_all.strip())
-
-    # 4. Role & organization generalization
-    cand_gen = re.sub(r"\bmy\s+(?:boss|manager|director|colleagues)\b", "colleagues", cand_all, flags=re.IGNORECASE)
-    cand_gen = re.sub(r"\bwork as\s+(?:a\s+|an\s+)?\w+\b", "work in my role", cand_gen, flags=re.IGNORECASE)
-    cand_gen = re.sub(r"\bwork in my profession\b", "work in my role", cand_gen, flags=re.IGNORECASE)
-    candidates.append(cand_gen.strip())
-
-    # 5. Privacy-focused rewrite
-    cand_priv = re.sub(r"\ban adult\b", "someone", cand_gen, flags=re.IGNORECASE)
-    cand_priv = re.sub(r"\s+", " ", cand_priv).strip()
-    candidates.append(cand_priv)
-
-    # 6. Explicit placeholder tags
-    cand_tags = placeholder_cues(scrubbed)
-    cand_tags = re.sub(r"\s+", " ", cand_tags).strip()
-    candidates.append(cand_tags)
-
-    # Clean whitespace and deduplicate preserving order
-    unique_candidates: List[str] = []
-    seen = set()
-    for c in candidates:
-        cleaned = re.sub(r"\s+", " ", c).strip()
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            unique_candidates.append(cleaned)
-
-    return unique_candidates
+    return list(dict.fromkeys(c for c in candidates if c))
 
 
 def pareto_rejection_sample(
@@ -495,6 +529,9 @@ def pareto_rejection_sample(
       - overall risk < max_risk_threshold (0.30)
       - cosine_similarity >= min_cosine_threshold (0.82)
       - no unscrubbed explicit PII
+      - not degenerate under src.evaluation.utility.check_degeneracy, the same
+        rule the utility guardrail applies, so a degenerate candidate can never
+        become an SFT target or be served
 
     Among acceptable candidates, selects the one maximizing utility_score.
     """
@@ -502,6 +539,8 @@ def pareto_rejection_sample(
 
     for cand in candidates:
         if not cand or cand.strip() == original.strip():
+            continue
+        if check_degeneracy(original, cand)["degenerate"]:
             continue
 
         # Check hard PII
