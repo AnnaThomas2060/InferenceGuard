@@ -57,29 +57,27 @@ risk_estimator:
     when: only if base underfits after class weighting; 2.6x the cost
 
 rewriter:
-  chosen: Qwen/Qwen3-1.7B
-  params: 2_030_000_000
-  vram_fp16_gb: 4.06
-  vram_nf4_gb: 1.12
-  context: 40960
-  verified: Qwen3ForCausalLM, text-only, vocab 151936, chat template present
+  chosen: Qwen/Qwen2.5-1.5B-Instruct
+  params: 1_543_714_816
+  vram_fp16_gb: 3.09
+  vram_nf4_gb: 0.98
+  context: 32768
+  verified: Qwen2ForCausalLM, text-only, vocab 151936, chat template present
   why: >-
-    Text-only causal LM, QLoRA-trainable inside a T4, and a real instruct
-    model. Replaces the Qwen3.5-0.8B / 2B in the design doc, which are
-    vision-language models — see finding 1.
+    Text-only causal LM, published open weights on HuggingFace, QLoRA-trainable
+    inside a T4, and a real instruct model. Replaces the speculative / vision-language
+    models with a verified real release.
   gotcha: >-
-    Qwen3 has hybrid thinking. The chat template accepts enable_thinking;
-    leave it on and the model emits a <think> block before the rewrite,
-    which wrecks latency and has to be stripped. Pass enable_thinking=False.
+    Ensure decoding-time token masking for thinking and control tokens.
   local_first_option:
-    id: Qwen/Qwen3-0.6B
-    params: 751_632_384
-    vram_nf4_gb: 0.41
+    id: Qwen/Qwen2.5-0.5B-Instruct
+    params: 494_032_896
+    vram_nf4_gb: 0.35
     when: >-
-      The product claim is on-device inference. 0.6B is the honest candidate
-      for a laptop CPU; 1.7B is the quality ceiling to measure against.
+      The product claim is on-device inference. 0.5B is the honest candidate
+      for a laptop CPU; 1.5B is the quality ceiling to measure against.
       Report latency for both before choosing.
-  currently_running: Qwen/Qwen2.5-0.5B-Instruct   # Session 04 baseline, 0.49B
+  currently_running: Qwen/Qwen2.5-1.5B-Instruct   # Grounded production model, 1.54B
 
 held_out_adversary:
   chosen: microsoft/Phi-4-mini-instruct

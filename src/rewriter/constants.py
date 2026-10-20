@@ -1,3 +1,5 @@
 """Constants for the rewriter module."""
 
-DEFAULT_BASE_MODEL = "Qwen/Qwen3-1.7B"  # must equal src/rewriter/inference.py
+from src.rewriter.inference import DEFAULT_BASE_MODEL
+
+__all__ = ["DEFAULT_BASE_MODEL"]

@@ -21,7 +21,7 @@ def make_config():
             "split": "validation",
         },
         "rewriter": {
-            "name": "Qwen3-1.7B",
+            "name": "Qwen/Qwen2.5-1.5B-Instruct",
             "checkpoint": "TBD",
         },
         "user_study": {
@@ -280,7 +280,7 @@ def make_session06_v2_config():
             "split": "validation",
         },
         "rewriter": {
-            "name": "Qwen3-1.7B",
+            "name": "Qwen/Qwen2.5-1.5B-Instruct",
             "checkpoint": "artifacts/rewriter_qlora",
         },
         "user_study": {
@@ -855,12 +855,31 @@ def test_actual_session06_config_matches_v2_contract():
         result.warnings
     )
 
-    assert (
-        "Dataset revision is still TBD"
-        in warning_text
-    )
+    dataset_rev = config.get("dataset", {}).get("revision")
+    if dataset_rev == "TBD":
+        assert (
+            "Dataset revision is still TBD"
+            in warning_text
+        )
+    else:
+        # Valid 40-character commit hash pinned in production
+        assert len(dataset_rev) == 40
+        assert (
+            "Dataset revision is still TBD"
+            not in warning_text
+        )
 
     assert (
         "Rewriter checkpoint is still TBD"
         not in warning_text
     )
+
+
+def test_config_with_pinned_commit_hash_passes_cleanly():
+    """Verify that a pinned 40-character commit hash does not trigger unpinned TBD warning."""
+    cfg = make_session06_v2_config()
+    cfg["dataset"]["revision"] = "b572595f543a51db789caddbb81a9fc4edc6c32f"
+    result = validate_config(cfg)
+    assert result.ok
+    assert not any("Dataset revision is still TBD" in w for w in result.warnings)
+

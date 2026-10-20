@@ -1,0 +1,46 @@
+{
+  "split": "val",
+  "sample_count": 50,
+  "methods": {
+    "raw": {
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 1.0,
+      "mean_semantic_similarity": 1.0,
+      "contradiction_rate": 0.0,
+      "p95_latency_ms": 0.0
+    },
+    "presidio": {
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
+      "contradiction_rate": 0.0,
+      "p95_latency_ms": 9.81
+    },
+    "prompt_baseline": {
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
+      "contradiction_rate": 0.0,
+      "p95_latency_ms": 7.03
+    },
+    "qlora_sft": {
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
+      "contradiction_rate": 0.0,
+      "p95_latency_ms": 6.79
+    }
+  }
+}

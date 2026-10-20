@@ -18,6 +18,7 @@ from src.rewriter.generate_training_data import (
     filter_train_records,
     format_alpaca_example,
     format_chatml_example,
+    generate_candidate_rewrites_heuristic,
     generate_sft_dataset,
     load_profile_splits,
     pareto_rejection_sample,
@@ -235,5 +236,38 @@ def test_full_generate_sft_dataset_pipeline():
             assert "instruction" in line
             assert "input" in line
             assert "output" in line
+
+
+def test_candidate_rewrites_heuristic_diversity():
+    """Verify generate_candidate_rewrites_heuristic produces fine-grained multi-tiered candidates."""
+    text = (
+        "Email me at dev@domain.com. I am 24 years old and work as a software engineer "
+        "living in Seattle after getting my degree from MIT."
+    )
+    candidates = generate_candidate_rewrites_heuristic(text)
+
+    # Must generate multiple unique candidates (not just 1 or 2 collapsed strings)
+    assert len(candidates) >= 5
+    assert len(candidates) == len(set(candidates))
+
+    # All candidates must have hard PII scrubbed
+    for cand in candidates:
+        assert "dev@domain.com" not in cand
+        assert cand.strip()
+
+    # Verify placeholder candidate exists
+    has_placeholders = any(
+        ("[LOCATION]" in c or "[OCCUPATION]" in c or "[AGE]" in c or "[EDUCATION]" in c)
+        for c in candidates
+    )
+    assert has_placeholders, "Expected at least one placeholder tag candidate"
+
+    # Verify fully neutralized candidate exists
+    has_full_neutral = any(
+        ("Seattle" not in c and "24 years old" not in c and "software engineer" not in c and "MIT" not in c)
+        for c in candidates
+    )
+    assert has_full_neutral, "Expected at least one fully neutralized candidate"
+
 
 

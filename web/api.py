@@ -234,6 +234,7 @@ class AnalyzeResponse(BaseModel):
 class RewriteRequest(BaseModel):
     text: str = Field(..., min_length=1)
     max_risk: float = Field(default=PROVISIONAL_MAX_RISK_THRESHOLD, ge=0.0, le=1.0)
+    session_id: Optional[str] = Field(default="default", description="Session ID")
 
 
 class RewriteResponse(BaseModel):

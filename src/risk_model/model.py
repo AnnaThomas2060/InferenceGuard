@@ -216,3 +216,135 @@ class ModernBertRiskClassifier(nn.Module):
             model.set_temperatures(config_data["temperatures"])
         model.to(device)
         return model
+
+
+class FocalCrossEntropyLoss(nn.Module):
+    """Focal loss addressing class imbalance without destabilizing gradient norms."""
+
+    def __init__(self, weight: Optional[torch.Tensor] = None, gamma: float = 1.5, ignore_index: int = -100):
+        super().__init__()
+        self.weight = weight
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute focal cross entropy loss over valid non-ignored targets."""
+        import torch.nn.functional as F
+        valid_mask = targets != self.ignore_index
+        if not valid_mask.any():
+            return logits.sum() * 0.0
+        valid_logits = logits[valid_mask]
+        valid_targets = targets[valid_mask]
+        ce_loss = F.cross_entropy(valid_logits, valid_targets, reduction="none", weight=self.weight)
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
+        return focal_loss.mean()
+
+
+class MultiTaskModernBERTRiskModel(nn.Module):
+    """Shared ModernBERT-base backbone with attribute-specific attention pooling and multi-class heads."""
+
+    def __init__(
+        self,
+        model_name: str = "answerdotai/ModernBERT-base",
+        dropout_prob: float = 0.15,
+        class_weights: Optional[Dict[str, torch.Tensor]] = None,
+        backbone: Optional[nn.Module] = None,
+        hidden_size: Optional[int] = None,
+    ):
+        super().__init__()
+        from src.contracts.schemas import AttributeName
+        from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
+
+        if backbone is not None:
+            self.encoder = backbone
+            resolved_h = hidden_size or getattr(backbone, "hidden_size", 768)
+        else:
+            self.config = AutoConfig.from_pretrained(model_name)
+            self.encoder = AutoModel.from_pretrained(model_name, config=self.config)
+            resolved_h = getattr(self.config, "hidden_size", 768)
+
+        # Attribute-specific attention pooling so each head attends to its own relevant tokens
+        self.attention_poolers = nn.ModuleDict({
+            attr.value: nn.Sequential(
+                nn.Linear(resolved_h, resolved_h // 2),
+                nn.Tanh(),
+                nn.Linear(resolved_h // 2, 1, bias=False),
+            )
+            for attr in AttributeName
+        })
+
+        self.classifiers = nn.ModuleDict({
+            attr.value: nn.Sequential(
+                nn.LayerNorm(resolved_h),
+                nn.Dropout(dropout_prob),
+                nn.Linear(resolved_h, resolved_h // 2),
+                nn.GELU(),
+                nn.Dropout(dropout_prob),
+                nn.Linear(resolved_h // 2, len(labels)),
+            )
+            for attr, labels in ATTRIBUTE_TAXONOMY.items()
+        })
+
+        self.loss_fns = nn.ModuleDict({
+            attr.value: FocalCrossEntropyLoss(
+                weight=class_weights.get(attr.value) if class_weights else None,
+                gamma=1.5,
+            )
+            for attr in AttributeName
+        })
+
+    def forward_from_embeds(
+        self,
+        inputs_embeds: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute multi-task attribute logits directly from token embeddings."""
+        from src.contracts.schemas import AttributeName
+
+        outputs = self.encoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+        seq_hidden = getattr(outputs, "last_hidden_state", outputs)  # [B, L, H]
+        mask_expanded = attention_mask.unsqueeze(-1).bool()  # [B, L, 1]
+
+        logits_dict: Dict[str, torch.Tensor] = {}
+        for attr in AttributeName:
+            key = attr.value
+            attn_scores = self.attention_poolers[key](seq_hidden)  # [B, L, 1]
+            attn_scores = attn_scores.masked_fill(~mask_expanded, -1e9)
+            attn_weights = torch.softmax(attn_scores, dim=1)  # [B, L, 1]
+            pooled = torch.sum(seq_hidden * attn_weights, dim=1)  # [B, H]
+            logits_dict[key] = self.classifiers[key](pooled)
+        return logits_dict
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: Optional[Dict[str, torch.Tensor]] = None,
+    ) -> Dict[str, Any]:
+        """Forward pass through input embeddings and multi-task heads."""
+        from src.contracts.schemas import AttributeName
+
+        embed_fn = getattr(self.encoder, "get_input_embeddings", None)
+        if callable(embed_fn):
+            embeds = embed_fn()(input_ids)
+        elif hasattr(self.encoder, "embeddings"):
+            embeds = self.encoder.embeddings(input_ids)
+        else:
+            raise AttributeError("Backbone has no recognizable input embedding layer.")
+
+        logits_dict = self.forward_from_embeds(embeds, attention_mask)
+        result: Dict[str, Any] = {"logits": logits_dict}
+
+        if labels is not None:
+            total_loss = torch.tensor(0.0, device=input_ids.device)
+            per_attr_loss = {}
+            for attr in AttributeName:
+                key = attr.value
+                if key in labels:
+                    attr_loss = self.loss_fns[key](logits_dict[key], labels[key])
+                    per_attr_loss[key] = attr_loss
+                    total_loss = total_loss + attr_loss
+            result["loss"] = total_loss
+            result["per_attribute_loss"] = per_attr_loss
+        return result

@@ -395,7 +395,14 @@ class IntegratedGradientsExplainer:
                 span_text = text[ent_start:ent_end].strip(punctuation_strip)
                 if span_text and any(c.isalnum() for c in span_text):
                     span_score = float(token_attributions[span_tokens].sum().item())
-                    raw_spans.append({"span": span_text, "score": max(0.0, span_score)})
+                    start_char_exact = text.find(span_text, ent_start)
+                    end_char_exact = start_char_exact + len(span_text) if start_char_exact != -1 else ent_end
+                    raw_spans.append({
+                        "span": span_text,
+                        "score": max(0.0, span_score),
+                        "start": start_char_exact if start_char_exact != -1 else ent_start,
+                        "end": end_char_exact,
+                    })
                 continue
 
             # Default: Aggregate subwords into single word
@@ -418,33 +425,46 @@ class IntegratedGradientsExplainer:
             span_text = text[word_start:word_end].strip(punctuation_strip)
             if span_text and any(c.isalnum() for c in span_text):
                 span_score = float(token_attributions[span_tokens].sum().item())
-                raw_spans.append({"span": span_text, "score": max(0.0, span_score)})
+                start_char_exact = text.find(span_text, word_start)
+                end_char_exact = start_char_exact + len(span_text) if start_char_exact != -1 else word_end
+                raw_spans.append({
+                    "span": span_text,
+                    "score": max(0.0, span_score),
+                    "start": start_char_exact if start_char_exact != -1 else word_start,
+                    "end": end_char_exact,
+                })
 
         if not raw_spans:
             return []
 
         # Step 1b: Aggregate peak attribution score per unique span across occurrences
-        span_max_scores: Dict[str, float] = {}
+        span_best: Dict[str, Dict[str, Any]] = {}
         for s in raw_spans:
             span_clean = s["span"]
-            if span_clean not in span_max_scores or s["score"] > span_max_scores[span_clean]:
-                span_max_scores[span_clean] = s["score"]
+            if span_clean not in span_best or s["score"] > span_best[span_clean]["score"]:
+                span_best[span_clean] = s
 
-        if not span_max_scores:
+        if not span_best:
             return []
 
         # Step 2: Normalize span scores relative to maximum score across all spans
-        max_score = max(span_max_scores.values())
+        max_score = max(s["score"] for s in span_best.values())
         if max_score <= 1e-9:
             return []
 
         # Step 3: Filter by floor, sort descending with tie-break, cap at MAX_CUES_SHOWN
         candidates: List[Cue] = []
-        for span_clean, score in span_max_scores.items():
-            norm_importance = round(score / max_score, 4)
+        for span_clean, info in span_best.items():
+            norm_importance = round(info["score"] / max_score, 4)
             if norm_importance >= CUE_IMPORTANCE_FLOOR and any(c.isalnum() for c in span_clean):
                 candidates.append(
-                    Cue(span=span_clean, attribute=attribute_name, importance=norm_importance)
+                    Cue(
+                        span=span_clean,
+                        attribute=attribute_name,
+                        importance=norm_importance,
+                        start=info.get("start"),
+                        end=info.get("end"),
+                    )
                 )
 
         # Deterministic sorting: highest importance first, ties broken alphabetically

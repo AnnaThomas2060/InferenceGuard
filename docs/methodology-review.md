@@ -41,14 +41,13 @@ an image in this product. For a model whose entire selling point is running
 locally, we would be paying about a third of the parameter budget for capacity
 we cannot use.
 
-**Recommendation: `Qwen/Qwen3-1.7B`** — text-only `Qwen3ForCausalLM`, 2.03B
-params, 1.12 GB in 4-bit, QLoRA-trainable on a T4. With `Qwen/Qwen3-0.6B`
-(0.41 GB in 4-bit) as the genuine on-device candidate. Measure latency for
+**Recommendation: `Qwen/Qwen2.5-1.5B-Instruct`** — text-only `Qwen2ForCausalLM`, 1.54B
+params, published open weights on Hugging Face, 0.98 GB in 4-bit, QLoRA-trainable on a T4. With `Qwen/Qwen2.5-0.5B-Instruct`
+(0.35 GB in 4-bit) as the genuine on-device candidate. Measure latency for
 both before committing to the local-first claim.
 
-One gotcha: Qwen3 has hybrid thinking, and the chat template will emit a
-`<think>` block before the rewrite unless you pass `enable_thinking=False`.
-That is a latency and parsing problem waiting to happen.
+One gotcha: Ensure thinking and control tokens are stripped or masked during decoding.
+That is a latency and parsing problem waiting to happen if unhandled.
 
 ### 2. Our location taxonomy does not fit the dataset
 
@@ -255,7 +254,7 @@ nothing; discovering the gap during Q&A on demo day would cost a lot.
 
 ## What I would do, in order
 
-1. **Swap the rewriter** to `Qwen/Qwen3-1.7B` (or 0.6B for the on-device
+1. **Swap the rewriter** to `Qwen/Qwen2.5-1.5B-Instruct` (or 0.5B for the on-device
    claim). Cheap, and it unblocks Session 07's QLoRA work on a T4.
 2. **Retrain the risk estimator on `reviews.human` inferability labels**,
    multi-label with class weights, ModernBERT-base fine-tuned rather than

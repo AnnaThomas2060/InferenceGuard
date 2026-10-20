@@ -5,7 +5,7 @@ schema_version: session06_v2
 
 dataset:
   name: RobinSta/SynthPAI
-  revision: TBD
+  revision: b572595f543a51db789caddbb81a9fc4edc6c32f
   split: validation
 
 random_seed: 42
@@ -15,7 +15,7 @@ risk_model:
   checkpoint: artifacts/risk_model/best_model
 
 rewriter:
-  name: Qwen3-1.7B
+  name: Qwen/Qwen2.5-1.5B-Instruct
   checkpoint: artifacts/rewriter_qlora
 
 attacker:

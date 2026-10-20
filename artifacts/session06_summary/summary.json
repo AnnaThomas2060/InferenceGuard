@@ -1,0 +1,710 @@
+{
+  "experiment_id": "session06_user_eval_v1",
+  "session": 6,
+  "experiment_type": "user_evaluation",
+  "schema_version": "session06_v2",
+  "record_count": 5,
+  "participant_count": 5,
+  "participants": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P05"
+  ],
+  "scenario_count": 4,
+  "scenarios": [
+    "S-01",
+    "S-02",
+    "S-03",
+    "S-04"
+  ],
+  "disclosure": {
+    "eligible_record_count": 3,
+    "anchor_disclosure_rate_mean": 0.8095,
+    "anchor_disclosure_rate_median": 1.0,
+    "per_record": [
+      {
+        "participant_id": "P01",
+        "scenario_id": "S-04",
+        "anchors_available": 8,
+        "anchors_used": 8,
+        "anchor_disclosure_rate": 1.0
+      },
+      {
+        "participant_id": "P03",
+        "scenario_id": "S-01",
+        "anchors_available": 6,
+        "anchors_used": 6,
+        "anchor_disclosure_rate": 1.0
+      },
+      {
+        "participant_id": "P04",
+        "scenario_id": "S-03",
+        "anchors_available": 7,
+        "anchors_used": 3,
+        "anchor_disclosure_rate": 0.4286
+      }
+    ]
+  },
+  "detection": {
+    "evaluated_count": 5,
+    "detected_risk_count": 5,
+    "detected_risk_rate": 1.0,
+    "risk_score_mean": 0.624,
+    "risk_score_median": 0.75
+  },
+  "system_states": {
+    "evaluated_count": 5,
+    "counts": {
+      "risk_positive_rewrite": 5
+    },
+    "rates": {
+      "risk_positive_rewrite": 1.0
+    },
+    "zero_risk_passthrough_count": 0,
+    "zero_risk_passthrough_rate": 0.0
+  },
+  "privacy": {
+    "risk_before_mean": null,
+    "risk_after_mean": null,
+    "risk_delta_mean": null,
+    "risk_delta_median": null,
+    "risk_inversion_count": 0,
+    "risk_inversion_rate": null
+  },
+  "utility": {
+    "utility_score_mean": null,
+    "utility_score_median": null,
+    "cosine_similarity_mean": null,
+    "cosine_similarity_median": null,
+    "nli_forward_mean": null,
+    "nli_forward_median": null,
+    "nli_backward_mean": null,
+    "nli_backward_median": null,
+    "contradiction_mean": null,
+    "contradiction_median": null
+  },
+  "usability": {
+    "decisions": {
+      "total_decisions": 5,
+      "observed_decisions": 5,
+      "accept_count": 3,
+      "accept_with_edits_count": 1,
+      "reject_count": 1,
+      "not_applicable_count": 0,
+      "other_count": 0,
+      "acceptance_rate": 0.8,
+      "accept_as_is_rate": 0.6,
+      "edit_rate": 0.2,
+      "rejection_rate": 0.2
+    },
+    "comprehension": {
+      "schema": "session06_categorical",
+      "evaluated_count": 5,
+      "correct_count": 3,
+      "partial_count": 1,
+      "incorrect_count": 0,
+      "echo_count": 1,
+      "comprehension_rate": 0.6,
+      "distribution": {
+        "correct": {
+          "count": 3,
+          "rate": 0.6
+        },
+        "echo": {
+          "count": 1,
+          "rate": 0.2
+        },
+        "incorrect": {
+          "count": 0,
+          "rate": 0.0
+        },
+        "partial": {
+          "count": 1,
+          "rate": 0.2
+        }
+      }
+    },
+    "adoption": {
+      "evaluated_count": 5,
+      "would_use_count": 3,
+      "would_not_use_count": 2,
+      "adoption_rate": 0.6
+    },
+    "usefulness": {
+      "usefulness_count": 5,
+      "usefulness_mean": 4.4,
+      "usefulness_median": 5.0
+    },
+    "latency": {
+      "latency_mean_seconds": null,
+      "latency_median_seconds": null,
+      "query_formulation_mean_seconds": 36.0,
+      "query_formulation_median_seconds": 15.0,
+      "decision_time_mean_seconds": 6.0,
+      "decision_time_median_seconds": 5.0
+    }
+  },
+  "protocol": {
+    "protocol_deviation_count": 0,
+    "protocol_deviation_rate": 0.0,
+    "pre_submit_intervention_count": 0,
+    "pre_submit_intervention_rate": 0.0,
+    "deviation_type_counts": {}
+  },
+  "reliability": {
+    "records_with_failure": 0,
+    "failure_record_rate": 0.0,
+    "failure_counts": {},
+    "trust_calibration_failure_count": 0,
+    "trust_calibration_failure_rate": 0.0,
+    "zero_risk_passthrough_count": 0,
+    "zero_risk_passthrough_rate": 0.0,
+    "protocol_deviation_count": 0,
+    "protocol_deviation_rate": 0.0,
+    "pre_submit_intervention_count": 0,
+    "pre_submit_intervention_rate": 0.0
+  },
+  "multiturn": {
+    "record_count": 0,
+    "turn_level_risk_mean": null,
+    "turn_level_risk_max": null,
+    "cumulative_risk_mean": null,
+    "cumulative_risk_max": null
+  },
+  "by_scenario": {
+    "S-01": {
+      "count": 1,
+      "disclosure": {
+        "eligible_record_count": 1,
+        "anchor_disclosure_rate_mean": 1.0,
+        "anchor_disclosure_rate_median": 1.0,
+        "per_record": [
+          {
+            "participant_id": "P03",
+            "scenario_id": "S-01",
+            "anchors_available": 6,
+            "anchors_used": 6,
+            "anchor_disclosure_rate": 1.0
+          }
+        ]
+      },
+      "detection": {
+        "evaluated_count": 1,
+        "detected_risk_count": 1,
+        "detected_risk_rate": 1.0,
+        "risk_score_mean": 0.75,
+        "risk_score_median": 0.75
+      },
+      "system_states": {
+        "evaluated_count": 1,
+        "counts": {
+          "risk_positive_rewrite": 1
+        },
+        "rates": {
+          "risk_positive_rewrite": 1.0
+        },
+        "zero_risk_passthrough_count": 0,
+        "zero_risk_passthrough_rate": 0.0
+      },
+      "decisions": {
+        "total_decisions": 1,
+        "observed_decisions": 1,
+        "accept_count": 1,
+        "accept_with_edits_count": 0,
+        "reject_count": 0,
+        "not_applicable_count": 0,
+        "other_count": 0,
+        "acceptance_rate": 1.0,
+        "accept_as_is_rate": 1.0,
+        "edit_rate": 0.0,
+        "rejection_rate": 0.0
+      },
+      "comprehension": {
+        "schema": "session06_categorical",
+        "evaluated_count": 1,
+        "correct_count": 0,
+        "partial_count": 1,
+        "incorrect_count": 0,
+        "echo_count": 0,
+        "comprehension_rate": 0.0,
+        "distribution": {
+          "correct": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "echo": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "incorrect": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "partial": {
+            "count": 1,
+            "rate": 1.0
+          }
+        }
+      },
+      "adoption": {
+        "evaluated_count": 1,
+        "would_use_count": 1,
+        "would_not_use_count": 0,
+        "adoption_rate": 1.0
+      },
+      "privacy": {
+        "risk_before_mean": null,
+        "risk_after_mean": null,
+        "risk_delta_mean": null,
+        "risk_delta_median": null,
+        "risk_inversion_count": 0,
+        "risk_inversion_rate": null
+      },
+      "utility": {
+        "utility_score_mean": null,
+        "utility_score_median": null,
+        "cosine_similarity_mean": null,
+        "cosine_similarity_median": null,
+        "nli_forward_mean": null,
+        "nli_forward_median": null,
+        "nli_backward_mean": null,
+        "nli_backward_median": null,
+        "contradiction_mean": null,
+        "contradiction_median": null
+      },
+      "usefulness": {
+        "usefulness_count": 1,
+        "usefulness_mean": 8.0,
+        "usefulness_median": 8.0
+      },
+      "latency": {
+        "latency_mean_seconds": null,
+        "latency_median_seconds": null,
+        "query_formulation_mean_seconds": 120.0,
+        "query_formulation_median_seconds": 120.0,
+        "decision_time_mean_seconds": 5.0,
+        "decision_time_median_seconds": 5.0
+      },
+      "protocol": {
+        "protocol_deviation_count": 0,
+        "protocol_deviation_rate": 0.0,
+        "pre_submit_intervention_count": 0,
+        "pre_submit_intervention_rate": 0.0,
+        "deviation_type_counts": {}
+      },
+      "failures": {
+        "records_with_failure": 0,
+        "failure_record_rate": 0.0,
+        "failure_counts": {},
+        "trust_calibration_failure_count": 0,
+        "trust_calibration_failure_rate": 0.0
+      },
+      "multiturn": {
+        "record_count": 0,
+        "turn_level_risk_mean": null,
+        "turn_level_risk_max": null,
+        "cumulative_risk_mean": null,
+        "cumulative_risk_max": null
+      }
+    },
+    "S-02": {
+      "count": 2,
+      "disclosure": {
+        "eligible_record_count": 0,
+        "anchor_disclosure_rate_mean": null,
+        "anchor_disclosure_rate_median": null,
+        "per_record": []
+      },
+      "detection": {
+        "evaluated_count": 2,
+        "detected_risk_count": 2,
+        "detected_risk_rate": 1.0,
+        "risk_score_mean": 0.75,
+        "risk_score_median": 0.75
+      },
+      "system_states": {
+        "evaluated_count": 2,
+        "counts": {
+          "risk_positive_rewrite": 2
+        },
+        "rates": {
+          "risk_positive_rewrite": 1.0
+        },
+        "zero_risk_passthrough_count": 0,
+        "zero_risk_passthrough_rate": 0.0
+      },
+      "decisions": {
+        "total_decisions": 2,
+        "observed_decisions": 2,
+        "accept_count": 1,
+        "accept_with_edits_count": 1,
+        "reject_count": 0,
+        "not_applicable_count": 0,
+        "other_count": 0,
+        "acceptance_rate": 1.0,
+        "accept_as_is_rate": 0.5,
+        "edit_rate": 0.5,
+        "rejection_rate": 0.0
+      },
+      "comprehension": {
+        "schema": "session06_categorical",
+        "evaluated_count": 2,
+        "correct_count": 1,
+        "partial_count": 0,
+        "incorrect_count": 0,
+        "echo_count": 1,
+        "comprehension_rate": 0.5,
+        "distribution": {
+          "correct": {
+            "count": 1,
+            "rate": 0.5
+          },
+          "echo": {
+            "count": 1,
+            "rate": 0.5
+          },
+          "incorrect": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "partial": {
+            "count": 0,
+            "rate": 0.0
+          }
+        }
+      },
+      "adoption": {
+        "evaluated_count": 2,
+        "would_use_count": 2,
+        "would_not_use_count": 0,
+        "adoption_rate": 1.0
+      },
+      "privacy": {
+        "risk_before_mean": null,
+        "risk_after_mean": null,
+        "risk_delta_mean": null,
+        "risk_delta_median": null,
+        "risk_inversion_count": 0,
+        "risk_inversion_rate": null
+      },
+      "utility": {
+        "utility_score_mean": null,
+        "utility_score_median": null,
+        "cosine_similarity_mean": null,
+        "cosine_similarity_median": null,
+        "nli_forward_mean": null,
+        "nli_forward_median": null,
+        "nli_backward_mean": null,
+        "nli_backward_median": null,
+        "contradiction_mean": null,
+        "contradiction_median": null
+      },
+      "usefulness": {
+        "usefulness_count": 2,
+        "usefulness_mean": 4.0,
+        "usefulness_median": 4.0
+      },
+      "latency": {
+        "latency_mean_seconds": null,
+        "latency_median_seconds": null,
+        "query_formulation_mean_seconds": 7.5,
+        "query_formulation_median_seconds": 7.5,
+        "decision_time_mean_seconds": 5.0,
+        "decision_time_median_seconds": 5.0
+      },
+      "protocol": {
+        "protocol_deviation_count": 0,
+        "protocol_deviation_rate": 0.0,
+        "pre_submit_intervention_count": 0,
+        "pre_submit_intervention_rate": 0.0,
+        "deviation_type_counts": {}
+      },
+      "failures": {
+        "records_with_failure": 0,
+        "failure_record_rate": 0.0,
+        "failure_counts": {},
+        "trust_calibration_failure_count": 0,
+        "trust_calibration_failure_rate": 0.0
+      },
+      "multiturn": {
+        "record_count": 0,
+        "turn_level_risk_mean": null,
+        "turn_level_risk_max": null,
+        "cumulative_risk_mean": null,
+        "cumulative_risk_max": null
+      }
+    },
+    "S-03": {
+      "count": 1,
+      "disclosure": {
+        "eligible_record_count": 1,
+        "anchor_disclosure_rate_mean": 0.4286,
+        "anchor_disclosure_rate_median": 0.4286,
+        "per_record": [
+          {
+            "participant_id": "P04",
+            "scenario_id": "S-03",
+            "anchors_available": 7,
+            "anchors_used": 3,
+            "anchor_disclosure_rate": 0.4286
+          }
+        ]
+      },
+      "detection": {
+        "evaluated_count": 1,
+        "detected_risk_count": 1,
+        "detected_risk_rate": 1.0,
+        "risk_score_mean": 0.35,
+        "risk_score_median": 0.35
+      },
+      "system_states": {
+        "evaluated_count": 1,
+        "counts": {
+          "risk_positive_rewrite": 1
+        },
+        "rates": {
+          "risk_positive_rewrite": 1.0
+        },
+        "zero_risk_passthrough_count": 0,
+        "zero_risk_passthrough_rate": 0.0
+      },
+      "decisions": {
+        "total_decisions": 1,
+        "observed_decisions": 1,
+        "accept_count": 1,
+        "accept_with_edits_count": 0,
+        "reject_count": 0,
+        "not_applicable_count": 0,
+        "other_count": 0,
+        "acceptance_rate": 1.0,
+        "accept_as_is_rate": 1.0,
+        "edit_rate": 0.0,
+        "rejection_rate": 0.0
+      },
+      "comprehension": {
+        "schema": "session06_categorical",
+        "evaluated_count": 1,
+        "correct_count": 1,
+        "partial_count": 0,
+        "incorrect_count": 0,
+        "echo_count": 0,
+        "comprehension_rate": 1.0,
+        "distribution": {
+          "correct": {
+            "count": 1,
+            "rate": 1.0
+          },
+          "echo": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "incorrect": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "partial": {
+            "count": 0,
+            "rate": 0.0
+          }
+        }
+      },
+      "adoption": {
+        "evaluated_count": 1,
+        "would_use_count": 0,
+        "would_not_use_count": 1,
+        "adoption_rate": 0.0
+      },
+      "privacy": {
+        "risk_before_mean": null,
+        "risk_after_mean": null,
+        "risk_delta_mean": null,
+        "risk_delta_median": null,
+        "risk_inversion_count": 0,
+        "risk_inversion_rate": null
+      },
+      "utility": {
+        "utility_score_mean": null,
+        "utility_score_median": null,
+        "cosine_similarity_mean": null,
+        "cosine_similarity_median": null,
+        "nli_forward_mean": null,
+        "nli_forward_median": null,
+        "nli_backward_mean": null,
+        "nli_backward_median": null,
+        "contradiction_mean": null,
+        "contradiction_median": null
+      },
+      "usefulness": {
+        "usefulness_count": 1,
+        "usefulness_mean": 5.0,
+        "usefulness_median": 5.0
+      },
+      "latency": {
+        "latency_mean_seconds": null,
+        "latency_median_seconds": null,
+        "query_formulation_mean_seconds": 30.0,
+        "query_formulation_median_seconds": 30.0,
+        "decision_time_mean_seconds": 5.0,
+        "decision_time_median_seconds": 5.0
+      },
+      "protocol": {
+        "protocol_deviation_count": 0,
+        "protocol_deviation_rate": 0.0,
+        "pre_submit_intervention_count": 0,
+        "pre_submit_intervention_rate": 0.0,
+        "deviation_type_counts": {}
+      },
+      "failures": {
+        "records_with_failure": 0,
+        "failure_record_rate": 0.0,
+        "failure_counts": {},
+        "trust_calibration_failure_count": 0,
+        "trust_calibration_failure_rate": 0.0
+      },
+      "multiturn": {
+        "record_count": 0,
+        "turn_level_risk_mean": null,
+        "turn_level_risk_max": null,
+        "cumulative_risk_mean": null,
+        "cumulative_risk_max": null
+      }
+    },
+    "S-04": {
+      "count": 1,
+      "disclosure": {
+        "eligible_record_count": 1,
+        "anchor_disclosure_rate_mean": 1.0,
+        "anchor_disclosure_rate_median": 1.0,
+        "per_record": [
+          {
+            "participant_id": "P01",
+            "scenario_id": "S-04",
+            "anchors_available": 8,
+            "anchors_used": 8,
+            "anchor_disclosure_rate": 1.0
+          }
+        ]
+      },
+      "detection": {
+        "evaluated_count": 1,
+        "detected_risk_count": 1,
+        "detected_risk_rate": 1.0,
+        "risk_score_mean": 0.52,
+        "risk_score_median": 0.52
+      },
+      "system_states": {
+        "evaluated_count": 1,
+        "counts": {
+          "risk_positive_rewrite": 1
+        },
+        "rates": {
+          "risk_positive_rewrite": 1.0
+        },
+        "zero_risk_passthrough_count": 0,
+        "zero_risk_passthrough_rate": 0.0
+      },
+      "decisions": {
+        "total_decisions": 1,
+        "observed_decisions": 1,
+        "accept_count": 0,
+        "accept_with_edits_count": 0,
+        "reject_count": 1,
+        "not_applicable_count": 0,
+        "other_count": 0,
+        "acceptance_rate": 0.0,
+        "accept_as_is_rate": 0.0,
+        "edit_rate": 0.0,
+        "rejection_rate": 1.0
+      },
+      "comprehension": {
+        "schema": "session06_categorical",
+        "evaluated_count": 1,
+        "correct_count": 1,
+        "partial_count": 0,
+        "incorrect_count": 0,
+        "echo_count": 0,
+        "comprehension_rate": 1.0,
+        "distribution": {
+          "correct": {
+            "count": 1,
+            "rate": 1.0
+          },
+          "echo": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "incorrect": {
+            "count": 0,
+            "rate": 0.0
+          },
+          "partial": {
+            "count": 0,
+            "rate": 0.0
+          }
+        }
+      },
+      "adoption": {
+        "evaluated_count": 1,
+        "would_use_count": 0,
+        "would_not_use_count": 1,
+        "adoption_rate": 0.0
+      },
+      "privacy": {
+        "risk_before_mean": null,
+        "risk_after_mean": null,
+        "risk_delta_mean": null,
+        "risk_delta_median": null,
+        "risk_inversion_count": 0,
+        "risk_inversion_rate": null
+      },
+      "utility": {
+        "utility_score_mean": null,
+        "utility_score_median": null,
+        "cosine_similarity_mean": null,
+        "cosine_similarity_median": null,
+        "nli_forward_mean": null,
+        "nli_forward_median": null,
+        "nli_backward_mean": null,
+        "nli_backward_median": null,
+        "contradiction_mean": null,
+        "contradiction_median": null
+      },
+      "usefulness": {
+        "usefulness_count": 1,
+        "usefulness_mean": 1.0,
+        "usefulness_median": 1.0
+      },
+      "latency": {
+        "latency_mean_seconds": null,
+        "latency_median_seconds": null,
+        "query_formulation_mean_seconds": 15.0,
+        "query_formulation_median_seconds": 15.0,
+        "decision_time_mean_seconds": 10.0,
+        "decision_time_median_seconds": 10.0
+      },
+      "protocol": {
+        "protocol_deviation_count": 0,
+        "protocol_deviation_rate": 0.0,
+        "pre_submit_intervention_count": 0,
+        "pre_submit_intervention_rate": 0.0,
+        "deviation_type_counts": {}
+      },
+      "failures": {
+        "records_with_failure": 0,
+        "failure_record_rate": 0.0,
+        "failure_counts": {},
+        "trust_calibration_failure_count": 0,
+        "trust_calibration_failure_rate": 0.0
+      },
+      "multiturn": {
+        "record_count": 0,
+        "turn_level_risk_mean": null,
+        "turn_level_risk_max": null,
+        "cumulative_risk_mean": null,
+        "cumulative_risk_max": null
+      }
+    }
+  }
+}

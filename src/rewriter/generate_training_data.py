@@ -1,4 +1,4 @@
-"""Rewriter SFT Dataset Generation for Qwen3-1.7B.
+"""Rewriter SFT Dataset Generation for Qwen/Qwen2.5-1.5B-Instruct.
 
 Filters SynthPAI comments to strictly train-partition profiles from artifacts/profile_splits.json
 to guarantee zero test/val leakage. Employs Pareto rejection sampling combining ModernBERT
@@ -244,18 +244,19 @@ def estimate_privacy_risk(
     text_lower = text.lower()
 
     age_cues = [
-        r"\b\d{1,2}\s*(?:years old|yo|y/o)\b",
+        r"\b\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)\b",
         r"\b(?:in my (?:20s|30s|40s|50s|60s|70s|twenties|thirties|forties))\b",
         r"\b(?:retired|pensioner|high school|college student|freshman|sophomore)\b",
     ]
     location_cues = [
         r"\b(?:living in|moved to|commute to|transit in|downtown|suburbs of)\b",
-        r"\b(?:denver|seattle|austin|california|new york|boston|chicago|london|berlin|paris|tokyo)\b",
+        r"\b(?:denver|seattle|austin|california|new york|boston|chicago|london|berlin|paris|tokyo|pittsburgh|san francisco)\b",
         r"\b(?:[A-Z]{2}\b|\bco\b|\bwa\b|\btx\b|\bca\b|\bny\b)",
     ]
     occupation_cues = [
         r"\b(?:work as|employed at|my boss|colleagues|software engineer|nurse|doctor|teacher|barista|lawyer)\b",
         r"\b(?:tech company|startup|hospital|clinic|law firm|school district|consultancy)\b",
+        r"\b(?:grading papers|grading exams)\b",
     ]
     education_cues = [
         r"\b(?:bachelor'?s?|master'?s?|ph\.?d\.?|degree in|undergrad|grad school|alumni|major in)\b",
@@ -283,12 +284,143 @@ def estimate_privacy_risk(
     return scores
 
 
+def neutralize_age_cues(text: str) -> str:
+    """Neutralize age-related inferential cues."""
+    res = re.sub(
+        r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b",
+        "an adult",
+        text,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:retired|pensioner)\b",
+        "not working",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(r"\ba\s+an\s+adult\b", "an adult", res, flags=re.IGNORECASE)
+    return res
+
+
+def neutralize_location_cues(text: str) -> str:
+    """Neutralize location-related inferential cues."""
+    cities = r"Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo"
+    res = re.sub(
+        rf"\b(?:in|to|from|near|around)\s+(?:{cities})(?:,\s*(?:[A-Za-z]{{4,}}|[A-Z]{{2}}))?\b",
+        "locally",
+        text,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        rf"\b(?:{cities})(?:,\s*(?:[A-Za-z]{{4,}}|[A-Z]{{2}}))?\b",
+        "the area",
+        res,
+        flags=re.IGNORECASE,
+    )
+    return res
+
+
+def neutralize_occupation_cues(text: str) -> str:
+    """Neutralize occupation-related inferential cues."""
+    res = re.sub(
+        r"\b(?:work as|employed as|employed at|working as)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher)\b",
+        "work in a professional role",
+        text,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:tech|engineering|medicine|law|consulting|design|education|summer internship)\b",
+        "work in a professional role",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher)\b",
+        "professional",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:summer\s+internship|internship|intern)\b",
+        "role",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:tech startup|startup|tech company|firm|clinic|hospital)\b",
+        "an organization",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:grading papers|grading exams)\b",
+        "evaluating work",
+        res,
+        flags=re.IGNORECASE,
+    )
+    return res
+
+
+def neutralize_education_cues(text: str) -> str:
+    """Neutralize education-related inferential cues."""
+    res = re.sub(
+        r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+(?:college|university|(?:[A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*\s+(?:University|College|Institute))|(?:MIT|CMU|Stanford|Harvard|Berkeley|Carnegie Mellon))\b",
+        "completing higher education",
+        text,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:bachelor'?s?|master'?s?|ph\.?d\.?|doctorate)\s*(?:degree)?\b",
+        "degree",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:undergrad|college student|Carnegie Mellon|MIT|Stanford|Harvard|Berkeley)\b",
+        "higher education",
+        res,
+        flags=re.IGNORECASE,
+    )
+    return res
+
+
+def placeholder_cues(text: str) -> str:
+    """Replace demographic and location cues with generic placeholder tags."""
+    cities = r"Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo"
+    res = re.sub(
+        r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b",
+        "[AGE]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        rf"\b(?:{cities})(?:,\s*(?:[A-Za-z]{{4,}}|[A-Z]{{2}}))?\b",
+        "[LOCATION]",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship|internship|intern)\b",
+        "[OCCUPATION]",
+        res,
+        flags=re.IGNORECASE,
+    )
+    res = re.sub(
+        r"\b(?:undergrad|Carnegie Mellon|MIT|Stanford|Harvard|Berkeley)\b",
+        "[EDUCATION]",
+        res,
+        flags=re.IGNORECASE,
+    )
+    return res
+
+
 def generate_candidate_rewrites_heuristic(text: str) -> List[str]:
     """Generate diverse candidate rewrites using rule-based transformations."""
     candidates: List[str] = []
 
     # 1. Hard PII scrubbing + demographic neutralization
-    cand1, _ = scrub_hard_pii(text)
+    base_text, _ = scrub_hard_pii(text)
+    cand1 = base_text
     # Neutralize age cues (including hyphenated like 21-year-old)
     cand1 = re.sub(
         r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b",
@@ -353,6 +485,31 @@ def generate_candidate_rewrites_heuristic(text: str) -> List[str]:
     cand3 = re.sub(r"\ban adult\b", "someone", cand2, flags=re.IGNORECASE)
     cand3 = re.sub(r"\b\s+", " ", cand3).strip()
     candidates.append(cand3)
+
+    if check_degeneracy(text, cand1)["degenerate"]:
+        return list(dict.fromkeys(c for c in candidates if c))
+
+    # Cand 4: placeholder tags derived from base
+    cand4 = re.sub(r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b", "[AGE]", base_text, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "living in [LOCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco)[,\sA-Z]*\b", "[LOCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work as [OCCUPATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer)\b", "[OCCUPATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+[A-Za-z\s]+(?:University|College|Mellon|MIT)?\b", "after getting my [EDUCATION]", cand4, flags=re.IGNORECASE)
+    cand4 = re.sub(r"\b(?:undergrad|Carnegie Mellon|MIT|Stanford|Harvard|Berkeley)\b", "[EDUCATION]", cand4, flags=re.IGNORECASE)
+    candidates.append(cand4.strip())
+
+    # Cand 5: age + occupation
+    cand5 = re.sub(r"\b(?:\d{1,2}[-\s]*(?:years?[-\s]*old|yo|y/o)|in my (?:20s|30s|40s|50s|60s|twenties|thirties|forties))\b", "an adult", base_text, flags=re.IGNORECASE)
+    cand5 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work in a role", cand5, flags=re.IGNORECASE)
+    cand5 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "locally", cand5, flags=re.IGNORECASE)
+    candidates.append(cand5.strip())
+
+    # Cand 6: occupation + education
+    cand6 = re.sub(r"\b(?:work as|employed as|employed at|working as|internship in|intern at)\s+(?:a\s+|an\s+|my\s+)?(?:software engineer|lawyer|doctor|nurse|barista|consultant|designer|engineer|teacher|summer internship)\b", "work in a professional role", base_text, flags=re.IGNORECASE)
+    cand6 = re.sub(r"\b(?:undergrad at|attending|student at|degree from|graduated from)\s+[A-Za-z\s]+(?:University|College|Mellon|MIT)?\b", "completing higher education", cand6, flags=re.IGNORECASE)
+    cand6 = re.sub(r"\b(?:in|to|from)\s+(?:Pittsburgh|Denver|Seattle|Austin|New York|Boston|Chicago|San Francisco|London|Paris|Tokyo)[,\sA-Z]*\b", "locally", cand6, flags=re.IGNORECASE)
+    candidates.append(cand6.strip())
 
     return list(dict.fromkeys(c for c in candidates if c))
 
@@ -424,7 +581,7 @@ def format_chatml_example(
     rewrite: str,
     system_prompt: str = SYSTEM_PROMPT,
 ) -> Dict[str, Any]:
-    """Format an SFT pair into ChatML schema for Qwen3-1.7B without thinking tokens."""
+    """Format an SFT pair into ChatML schema for Qwen/Qwen2.5-1.5B-Instruct without thinking tokens."""
     clean_rewrite = re.sub(r"<think>.*?</think>", "", rewrite, flags=re.DOTALL).strip()
     return {
         "messages": [
@@ -441,7 +598,7 @@ def format_alpaca_example(
     rewrite: str,
     instruction: str = DEFAULT_INSTRUCTION,
 ) -> Dict[str, Any]:
-    """Format an SFT pair into Alpaca schema for Qwen3-1.7B without thinking tokens."""
+    """Format an SFT pair into Alpaca schema for Qwen/Qwen2.5-1.5B-Instruct without thinking tokens."""
     clean_rewrite = re.sub(r"<think>.*?</think>", "", rewrite, flags=re.DOTALL).strip()
     return {
         "instruction": instruction,
@@ -547,19 +704,217 @@ def generate_sft_dataset(
     return summary
 
 
+def format_cue_conditioned_instruction(
+    pseudonymized_text: str,
+    risk_report: Any,
+    mode: Any = "balanced_sft",
+    active_pseudonyms: Optional[List[str]] = None,
+) -> str:
+    """Format structured cue-conditioned control prompt directing the rewriter on exact leaking cues."""
+    from src.contracts.schemas import RewriteMode
+
+    mode_val = getattr(mode, "value", str(mode))
+    high_or_med_attrs = []
+    if hasattr(risk_report, "attributes"):
+        for attr, dist in risk_report.attributes.items():
+            band_val = getattr(dist.risk_band, "value", str(dist.risk_band))
+            score = getattr(dist, "inferability_risk_score", 0.0)
+            pred = getattr(dist, "predicted_value", "UNKNOWN")
+            attr_key = getattr(attr, "value", str(attr))
+            if score >= 0.30:
+                high_or_med_attrs.append(f"{attr_key} ({band_val}: {score:.2f}, inferred={pred})")
+
+    attrs_str = ", ".join(high_or_med_attrs) if high_or_med_attrs else "None (LOW RISK)"
+
+    cues_list = getattr(risk_report, "cues", []) if hasattr(risk_report, "cues") else []
+    cue_strings = [
+        f'"{cue.span_text}" -> {getattr(cue.attribute, "value", str(cue.attribute))} (importance={cue.importance:.2f})'
+        for cue in cues_list[:6]
+    ]
+    cues_str = "; ".join(cue_strings) if cue_strings else "None detected"
+    pseudo_str = ", ".join(active_pseudonyms) if active_pseudonyms else "None"
+
+    is_strong = mode_val == "strong_privacy_sft" or mode == RewriteMode.STRONG_PRIVACY_SFT
+    strength_directive = (
+        "Abstract all specific regional, institutional, and demographic markers into broad functional categories."
+        if is_strong
+        else "Generalize the detected privacy cues into broader terms while keeping all task-relevant constraints intact."
+    )
+
+    return (
+        f"<|im_start|>system\n"
+        f"You are InferenceGuard, a local privacy-preserving rewriter. "
+        f"{strength_directive} "
+        f"Never alter or remove uppercase pseudonym tokens ({pseudo_str}). "
+        f"If the input has no high/medium risk attributes, return the input text unchanged.<|im_end|>\n"
+        f"<|im_start|>user\n"
+        f"[RISK_ATTRIBUTES]: {attrs_str}\n"
+        f"[DETECTED_CUES]: {cues_str}\n"
+        f"[PRESERVE_TOKENS]: {pseudo_str}\n"
+        f"[MESSAGE]: {pseudonymized_text}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
+
+
+class ParetoSFTDatasetBuilder:
+    """Builds multi-candidate SFT datasets filtered by joint calibrated risk reduction and NLI entailment."""
+
+    def __init__(
+        self,
+        risk_predictor: Any,
+        utility_evaluator: Any,
+        candidate_generator_fn: Optional[Callable] = None,
+        min_relative_risk_drop: float = 0.25,
+        min_bidirectional_nli: float = 0.65,
+        max_contradiction_prob: float = 0.15,
+    ):
+        """Initialize the Pareto builder with risk, utility, and candidate generation functions."""
+        self.risk_predictor = risk_predictor
+        self.utility_evaluator = utility_evaluator
+        self.candidate_generator_fn = candidate_generator_fn or generate_candidate_rewrites_heuristic
+        self.min_relative_risk_drop = min_relative_risk_drop
+        self.min_bidirectional_nli = min_bidirectional_nli
+        self.max_contradiction_prob = max_contradiction_prob
+
+    def build_sft_dataset(
+        self,
+        train_records: List[Dict[str, Any]],
+        output_jsonl_path: Path,
+        identity_ratio: float = 0.15,
+    ) -> Dict[str, int]:
+        """Generate, filter, and write Pareto-optimal rewrite pairs with identity no-ops."""
+        from src.contracts.schemas import RewriteMode
+
+        output_jsonl_path = Path(output_jsonl_path)
+        output_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        accepted_high_risk: List[Dict[str, Any]] = []
+        low_risk_pool: List[Dict[str, Any]] = []
+        stats = {
+            "total_train_inputs": len(train_records),
+            "candidates_evaluated": 0,
+            "rejected_privacy": 0,
+            "rejected_utility": 0,
+            "rejected_pseudonym_violation": 0,
+            "accepted_rewrites": 0,
+            "accepted_identity_no_ops": 0,
+        }
+
+        for rec in train_records:
+            if rec.get("split") and rec.get("split") != "train":
+                raise RuntimeError(f"CRITICAL DATA LEAKAGE BLOCKED: record from split={rec.get('split')} in SFT builder!")
+
+            text = rec.get("pseudonymized_text", rec.get("text", ""))
+            if not text:
+                continue
+
+            active_tokens = rec.get("active_pseudonyms", [])
+            risk_before = self.risk_predictor.predict(text)
+            overall_before = getattr(risk_before, "overall_risk_score", 0.0)
+
+            if overall_before < 0.25:
+                low_risk_pool.append({
+                    "prompt": format_cue_conditioned_instruction(
+                        text, risk_before, RewriteMode.BALANCED_SFT, active_tokens
+                    ),
+                    "completion": f"{text}<|im_end|>",
+                    "metadata": {
+                        "profile_id": rec.get("profile_id", "unknown"),
+                        "is_identity_noop": True,
+                        "risk_before": overall_before,
+                        "risk_after": overall_before,
+                        "bidirectional_nli": 1.0,
+                    },
+                })
+                continue
+
+            # High or medium risk: evaluate candidate rewrites
+            candidates = self.candidate_generator_fn(text)
+            best_candidate = None
+            best_pareto_score = -1e9
+
+            for cand_text in candidates:
+                stats["candidates_evaluated"] += 1
+                cand_text = str(cand_text).strip()
+                if not cand_text or cand_text == text:
+                    stats["rejected_privacy"] += 1
+                    continue
+
+                if any(tok not in cand_text for tok in active_tokens):
+                    stats["rejected_pseudonym_violation"] += 1
+                    continue
+
+                risk_after = self.risk_predictor.predict(cand_text)
+                overall_after = getattr(risk_after, "overall_risk_score", 0.0)
+                rel_drop = (overall_before - overall_after) / max(overall_before, 0.1)
+
+                if rel_drop < self.min_relative_risk_drop:
+                    stats["rejected_privacy"] += 1
+                    continue
+
+                util = self.utility_evaluator.evaluate_pair(text, cand_text)
+                bi_nli = getattr(util, "bidirectional_entailment", 1.0)
+                contra_p = getattr(util, "contradiction_prob", 0.0)
+                sem_sim = getattr(util, "semantic_similarity", 1.0)
+
+                if bi_nli < self.min_bidirectional_nli or contra_p > self.max_contradiction_prob:
+                    stats["rejected_utility"] += 1
+                    continue
+
+                length_ratio_pen = abs(len(cand_text) - len(text)) / max(len(text), 1)
+                pareto_score = (
+                    0.45 * rel_drop
+                    + 0.40 * bi_nli
+                    + 0.15 * sem_sim
+                    - 0.10 * length_ratio_pen
+                )
+
+                if pareto_score > best_pareto_score:
+                    best_pareto_score = pareto_score
+                    best_candidate = {
+                        "prompt": format_cue_conditioned_instruction(
+                            text, risk_before, RewriteMode.BALANCED_SFT, active_tokens
+                        ),
+                        "completion": f"{cand_text}<|im_end|>",
+                        "metadata": {
+                            "profile_id": rec.get("profile_id", "unknown"),
+                            "is_identity_noop": False,
+                            "risk_before": round(overall_before, 4),
+                            "risk_after": round(overall_after, 4),
+                            "bidirectional_nli": round(bi_nli, 4),
+                            "semantic_similarity": round(sem_sim, 4),
+                            "pareto_score": round(pareto_score, 4),
+                        },
+                    }
+
+            if best_candidate is not None:
+                accepted_high_risk.append(best_candidate)
+                stats["accepted_rewrites"] += 1
+
+        # Add 15% identity no-op regularizers
+        target_noop_count = int(len(accepted_high_risk) * (identity_ratio / max(1.0 - identity_ratio, 0.01)))
+        selected_noops = low_risk_pool[:max(1, target_noop_count)] if low_risk_pool else []
+        stats["accepted_identity_no_ops"] = len(selected_noops)
+
+        final_dataset = accepted_high_risk + selected_noops
+        with output_jsonl_path.open("w", encoding="utf-8") as f:
+            for item in final_dataset:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+        return stats
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate SFT dataset for Qwen3-1.7B")
-    parser.add_argument("-i", "--input_file", type=str, required=True, help="Path to SynthPAI dataset")
-    parser.add_argument("-s", "--splits_file", type=str, default="artifacts/profile_splits.json", help="Path to profile_splits.json")
-    parser.add_argument("-c", "--output_chatml", type=str, default="data/qwen_sft_chatml.jsonl", help="ChatML output path")
-    parser.add_argument("-a", "--output_alpaca", type=str, default="data/qwen_sft_alpaca.jsonl", help="Alpaca output path")
+    parser = argparse.ArgumentParser(description="Generate SFT dataset for Qwen/Qwen2.5-1.5B-Instruct")
+    parser.add_argument("-i", "--input", "--input_file", type=str, default="data/splits/train.jsonl", help="Path to SynthPAI dataset or train split")
+    parser.add_argument("-s", "--splits", "--splits_file", type=str, default="artifacts/profile_splits.json", help="Path to profile_splits.json")
+    parser.add_argument("-c", "-o", "--output", "--output_chatml", type=str, default="artifacts/rewriter_sft_chatml.jsonl", help="ChatML output path")
+    parser.add_argument("-a", "--output_alpaca", type=str, default="artifacts/rewriter_sft_alpaca.jsonl", help="Alpaca output path")
     parser.add_argument("-n", "--max_samples", type=int, default=1000, help="Max accepted samples")
     args = parser.parse_args()
 
     summary = generate_sft_dataset(
-        synthpai_path=args.input_file,
-        splits_path=args.splits_file,
-        output_chatml_path=args.output_chatml,
+        synthpai_path=args.input,
+        splits_path=args.splits,
+        output_chatml_path=args.output,
         output_alpaca_path=args.output_alpaca,
         max_samples=args.max_samples,
     )

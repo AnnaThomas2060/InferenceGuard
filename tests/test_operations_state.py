@@ -166,3 +166,66 @@ def test_session_manager_backward_compatibility():
         assert sm.sessions[sess_id].status == "ended"
 
 
+def test_bayesian_evidence_gating_prevents_false_positive_alarm_on_20_innocent_turns():
+    """Verify Bayesian Evidence Gating prevents background noise from compounding into breach alarms.
+
+    Over 20 innocent conversational turns, each turn outputs baseline background noise P_t <= 0.05.
+    Ungated naive multiplication would compound to 1 - (1 - 0.05)^20 = 0.642, falsely triggering
+    a high-risk breach alarm. With Bayesian Evidence Gating, background noise is not compounded,
+    preventing false positive breach alerts.
+    """
+    tracker = ConversationTracker(high_risk_threshold=0.60)
+    session_id = "innocent_20_turns"
+    tracker.risk_estimator_fn = lambda _: {"age": 0.05, "location": 0.05, "occupation": 0.05, "education": 0.05}
+
+    last_rec = None
+    for turn_idx in range(1, 21):
+        last_rec = tracker.add_turn(f"Innocent greeting number {turn_idx}.", session_id=session_id)
+
+    assert last_rec is not None
+    assert last_rec.turn_number == 20
+    # Cumulative risk must not have compounded to 0.642
+    assert last_rec.overall_cumulative_risk <= 0.05
+    assert last_rec.is_breached is False
+    assert last_rec.residual_anonymity_capacity >= 3.8
+    assert last_rec.residual_anonymity_capacity == last_rec.joint_entropy
+
+
+def test_bayesian_evidence_gating_monotonicity_under_baseline_fluctuation():
+    """Verify that cumulative scores do not decrease when turn scores fluctuate below noise floor."""
+    tracker = ConversationTracker(high_risk_threshold=0.60)
+    session_id = "monotonic_sess"
+
+    # Turn 1: 0.04
+    tracker.risk_estimator_fn = lambda _: {"age": 0.04, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec1 = tracker.add_turn("Turn 1", session_id=session_id)
+    assert rec1.cumulative_scores["age"] == pytest.approx(0.04, 1e-4)
+
+    # Turn 2: 0.01 (lower baseline must not decrease cumulative risk from 0.04 to 0.01)
+    tracker.risk_estimator_fn = lambda _: {"age": 0.01, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec2 = tracker.add_turn("Turn 2", session_id=session_id)
+    assert rec2.cumulative_scores["age"] == pytest.approx(0.04, 1e-4)
+
+    # Turn 3: 0.05 (updates to max baseline 0.05)
+    tracker.risk_estimator_fn = lambda _: {"age": 0.05, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec3 = tracker.add_turn("Turn 3", session_id=session_id)
+    assert rec3.cumulative_scores["age"] == pytest.approx(0.05, 1e-4)
+
+    # Turn 4: 0.02 (retains 0.05)
+    tracker.risk_estimator_fn = lambda _: {"age": 0.02, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec4 = tracker.add_turn("Turn 4", session_id=session_id)
+    assert rec4.cumulative_scores["age"] == pytest.approx(0.05, 1e-4)
+
+    # Turn 5: 0.30 (genuine disclosure above noise floor)
+    tracker.risk_estimator_fn = lambda _: {"age": 0.30, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec5 = tracker.add_turn("Turn 5", session_id=session_id)
+    assert rec5.cumulative_scores["age"] == pytest.approx(0.30, 1e-4)
+
+    # Turn 6: 0.02 (noise floor; does not compound on top of 0.30)
+    tracker.risk_estimator_fn = lambda _: {"age": 0.02, "location": 0.01, "occupation": 0.01, "education": 0.01}
+    rec6 = tracker.add_turn("Turn 6", session_id=session_id)
+    assert rec6.cumulative_scores["age"] == pytest.approx(0.30, 1e-4)
+
+
+
+

@@ -211,3 +211,36 @@ def test_clean_gpu_memory():
     clean_gpu_memory()
 
 
+def test_attacker_evaluate_success_precision_no_false_positives():
+    """Verify that different entities sharing a single common word are NOT false-positive matches."""
+    attacker = Phi4MiniAttacker()
+
+    assert not attacker.evaluate_success("Sound Engineer", "Civil Engineer")
+    assert not attacker.evaluate_success("North Carolina", "South Carolina")
+    assert not attacker.evaluate_success("Medical School", "High School")
+    assert not attacker.evaluate_success("Real Estate Developer", "Software Developer")
+
+
+def test_attacker_evaluate_success_valid_ontological_matches():
+    """Verify semantic synonyms and phrase containment evaluate as valid matches."""
+    attacker = Phi4MiniAttacker()
+
+    assert attacker.evaluate_success("Denver", "Denver, CO")
+    assert attacker.evaluate_success("Software Engineer", "Senior Software Developer")
+    assert attacker.evaluate_success("Doctor", "Physician")
+    assert attacker.evaluate_success("Lawyer", "Attorney")
+    assert attacker.evaluate_success("SWE", "Software Engineer")
+
+
+def test_attacker_evaluate_success_age_bracket_intervals():
+    """Verify closed numerical interval parsing and intersection for age brackets."""
+    attacker = Phi4MiniAttacker()
+
+    assert attacker.evaluate_success("28", "20s")
+    assert attacker.evaluate_success("early 30s", "32")
+    assert not attacker.evaluate_success("early 30s", "38")
+    assert attacker.evaluate_success("between 25 and 35", "30")
+    assert not attacker.evaluate_success("45", "20s")
+
+
+

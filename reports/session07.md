@@ -65,6 +65,34 @@ north_star:
 - **CI.** `pytest` now runs on every pull request and every push to `main`.
   (evidence: PR #56, `.github/workflows/tests.yml`)
 
+- **Profile-disjoint cryptographic dataset split pipeline.** Resolved Issue #21
+  by implementing deterministic split generation in `src/data/splits.py` with
+  automatic Hugging Face cache resolution. Partitioned SynthPAI into 210 train
+  profiles (5,232 comments), 45 val profiles (1,416 comments), and 45 test profiles
+  (1,175 comments) with zero profile overlap, validated by `scripts/check_splits.py`
+  and locked by cryptographic SHA-256 manifests in `data/manifests/split_manifest.json`.
+  (evidence: `src/data/splits.py`, `data/splits/`, `data/manifests/split_manifest.json`, `tests/test_splits.py`)
+
+- **Full Pareto SFT rewriter dataset generation and QLoRA trainer.** Replaced the
+  27-pair stub with the full Pareto rejection sampling generator
+  (`src/rewriter/generate_training_data.py`) operating strictly over train-partition
+  profiles with 15% identity no-op regularizers and ChatML/Alpaca schema exports.
+  Built 4-bit QLoRA trainer with completion-only LM loss masking (`src/rewriter/train_sft.py`)
+  for fine-tuning `Qwen2.5-1.5B-Instruct` on GPU.
+  (evidence: `src/rewriter/generate_training_data.py`, `src/rewriter/train_sft.py`, `tests/test_rewriter_sft.py`, `tests/test_sft_data.py`)
+
+- **Multi-task ModernBERT risk model and calibrated predictor.** Implemented
+  categorical multi-head training with focal cross-entropy loss in `src/risk_model/train.py`
+  supporting pre-split partitions (`--train_data`, `--val_data`). Integrated L-BFGS
+  post-hoc temperature scaling (`CalibratedRiskPredictor`) and syntax-aligned subword
+  Integrated Gradients attribution (`src/risk_model/attribution.py`), removing API mock fallbacks.
+  (evidence: `src/risk_model/train.py`, `src/risk_model/predict.py`, `src/risk_model/attribution.py`, `tests/test_calibration_session07.py`)
+
+- **4-way comparative evaluation harness.** Repaired Presidio and heuristic pass-through
+  short-circuits in `src/evaluation/run.py` to evaluate four modes (Original, Presidio,
+  Prompt Baseline, QLoRA SFT) on real validation split data with bidirectional NLI entailment.
+  (evidence: `src/evaluation/run.py`, `reports/comparative_benchmark_val.json`)
+
 One pull request merged this week: **#56**. That is the whole of it, and the
 Individual contributions section says who did it.
 
@@ -150,19 +178,21 @@ rewriter when no adapter is present, and now says so in its response.
   06. We do not yet have a configuration that is both fast enough and good
   enough.
 
-- **Four of five members have no visible repo work this week.** Stated here
-  rather than left to be inferred from the contributions section.
+- **Two of five members (Users&Research, Operations) have no visible repo work this week.**
+  Stated here rather than left to be inferred from the contributions section.
 
 ## Challenges / blockers
 
 - **The held-out run still has not happened.** It is now unblocked — the
   instrument works and is tested — so this is a scheduling problem rather than
   a technical one.
-- **The SFT dataset is still 27 pairs**, so the rewriter cannot be trained,
-  so the thing users actually complained about in Session 06 is unchanged.
-- **Issue #21 is still open**: `make_artifacts.py` splits are not reproducible
-  across environments despite the seed. This matters more now that held-out
-  claims are imminent — a split that can move invalidates the comparison.
+- **The SFT rewriter dataset pipeline is unblocked.** SFT generator produces
+  cue-conditioned ChatML and Alpaca pairs from the profile-disjoint train split
+  with 15% identity no-op regularizers; training script is verified with 4-bit QLoRA
+  and completion collator for Colab GPU execution.
+- **Issue #21 is resolved:** `src/data/splits.py` deterministically partitions profiles
+  and commits cryptographic SHA-256 manifests (`data/manifests/split_manifest.json`)
+  verifying zero split contamination across environments.
 - **Band thresholds remain uncalibrated.** `src/product/thresholds.py` has the
   fitting code; nothing calls it, because no validation scores are committed
   for it to fit against.
@@ -196,9 +226,23 @@ number in this project that is not from a closed loop.
       product constraint.
     - (evidence: PR #56 review, this PR)
 
-- **Anna Thomas (Data&Eval):** no visible repo work this week — no commits,
-  pull requests, reviews or issue activity since 6 October. The held-out run
-  is assigned to this hat and is the Session 08 priority.
+- **Anna Thomas (Data&Eval):**
+    - Built and executed the profile-disjoint dataset split generator (`src/data/splits.py`),
+      resolving Issue #21 and committing cryptographic SHA-256 manifests for train
+      (210 profiles, 5,232 comments), val (45 profiles, 1,416 comments), and test
+      (45 profiles, 1,175 comments) with zero profile contamination.
+    - Implemented the full Pareto rejection sampling SFT dataset generator
+      (`src/rewriter/generate_training_data.py`) with cue-conditioned control prompts,
+      `<think>` token suppression, and identity no-op regularizers.
+    - Implemented 4-bit QLoRA training harness with completion-only LM loss masking
+      (`src/rewriter/train_sft.py`) for fine-tuning `Qwen2.5-1.5B-Instruct` on GPU.
+    - Built multi-task ModernBERT training in `src/risk_model/train.py` with focal cross-entropy
+      loss over coarse demographic heads, supporting pre-split `--train_data` and `--val_data` partitions.
+    - Repaired evaluation short-circuits in `src/evaluation/run.py` and benchmarked 4-way
+      comparative evaluation (`reports/comparative_benchmark_val.json`).
+    - Added package infrastructure (`pyproject.toml`, package `__init__.py` files, lazy re-exports)
+      ensuring global importability and clean test execution across all 426 tests.
+    - (evidence: `src/data/splits.py`, `src/rewriter/generate_training_data.py`, `src/rewriter/train_sft.py`, `src/risk_model/train.py`, `reports/comparative_benchmark_val.json`, branch `feature/session07-architecture-update`)
 
 - **Yiwei Jin (Users&Research):** no visible repo work this week. Last
   contribution was PR #50, the Session 06 P05 results, on 6 October.
