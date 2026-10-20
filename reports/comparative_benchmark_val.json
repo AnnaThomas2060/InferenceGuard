@@ -1,130 +1,46 @@
 {
   "split": "val",
-  "sample_count": 3,
+  "sample_count": 50,
   "methods": {
     "raw": {
-      "overall_attack_success_rate": 0.5833,
-      "overall_attacker_macro_f1": 0.2777,
-      "overall_attacker_abstention_rate": 0.4167,
-      "per_attribute": {
-        "age": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.2,
-          "abstention_rate": 0.6667
-        },
-        "education": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.4167,
-          "abstention_rate": 0.3333
-        },
-        "occupation": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.2857,
-          "abstention_rate": 0.3333
-        },
-        "location": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.2083,
-          "abstention_rate": 0.3333
-        }
-      },
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
       "mean_bidirectional_entailment": 1.0,
       "mean_semantic_similarity": 1.0,
       "contradiction_rate": 0.0,
       "p95_latency_ms": 0.0
     },
     "presidio": {
-      "overall_attack_success_rate": 0.5,
-      "overall_attacker_macro_f1": 0.2568,
-      "overall_attacker_abstention_rate": 0.5,
-      "per_attribute": {
-        "age": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.2,
-          "abstention_rate": 0.6667
-        },
-        "education": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.4167,
-          "abstention_rate": 0.3333
-        },
-        "occupation": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.2857,
-          "abstention_rate": 0.3333
-        },
-        "location": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.125,
-          "abstention_rate": 0.6667
-        }
-      },
-      "mean_bidirectional_entailment": 0.8969,
-      "mean_semantic_similarity": 0.8969,
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
       "contradiction_rate": 0.0,
-      "p95_latency_ms": 6.58
+      "p95_latency_ms": 9.81
     },
     "prompt_baseline": {
-      "overall_attack_success_rate": 0.5,
-      "overall_attacker_macro_f1": 0.2568,
-      "overall_attacker_abstention_rate": 0.5,
-      "per_attribute": {
-        "age": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.2,
-          "abstention_rate": 0.6667
-        },
-        "education": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.4167,
-          "abstention_rate": 0.3333
-        },
-        "occupation": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.2857,
-          "abstention_rate": 0.3333
-        },
-        "location": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.125,
-          "abstention_rate": 0.6667
-        }
-      },
-      "mean_bidirectional_entailment": 0.8353,
-      "mean_semantic_similarity": 0.8353,
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
       "contradiction_rate": 0.0,
-      "p95_latency_ms": 8.19
+      "p95_latency_ms": 7.03
     },
     "qlora_sft": {
-      "overall_attack_success_rate": 0.5,
-      "overall_attacker_macro_f1": 0.2568,
-      "overall_attacker_abstention_rate": 0.5,
-      "per_attribute": {
-        "age": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.2,
-          "abstention_rate": 0.6667
-        },
-        "education": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.4167,
-          "abstention_rate": 0.3333
-        },
-        "occupation": {
-          "attack_accuracy": 0.6667,
-          "macro_f1": 0.2857,
-          "abstention_rate": 0.3333
-        },
-        "location": {
-          "attack_accuracy": 0.3333,
-          "macro_f1": 0.125,
-          "abstention_rate": 0.6667
-        }
-      },
-      "mean_bidirectional_entailment": 0.8353,
-      "mean_semantic_similarity": 0.8353,
+      "overall_attack_success_rate": 0.0,
+      "overall_attacker_macro_f1": 0.0,
+      "overall_attacker_abstention_rate": 0.0,
+      "per_attribute": {},
+      "mean_bidirectional_entailment": 0.9967,
+      "mean_semantic_similarity": 0.9967,
       "contradiction_rate": 0.0,
-      "p95_latency_ms": 5.61
+      "p95_latency_ms": 6.79
     }
   }
 }

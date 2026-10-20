@@ -10,6 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
+from src.product.thresholds import PROVISIONAL_MAX_RISK_THRESHOLD
 
 
 class AttributeName(str, Enum):
@@ -156,8 +157,10 @@ class RewriteRequest(BaseModel):
     """Client request for privacy-preserving rewriting."""
     text: str = Field(..., min_length=1)
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = Field("default", description="Optional conversation session ID")
     mode: RewriteMode = RewriteMode.BALANCED_SFT
     preserve_pseudonyms: bool = True
+    max_risk: float = Field(default=PROVISIONAL_MAX_RISK_THRESHOLD, ge=0.0, le=1.0)
 
 
 class RewriteResponse(BaseModel):

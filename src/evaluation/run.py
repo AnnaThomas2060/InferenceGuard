@@ -12,14 +12,13 @@ import argparse
 import gc
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.evaluation.attacker import Phi4MiniAttacker
 from src.evaluation.presidio_baseline import PresidioBaseline
 from src.evaluation.utility import UtilityEvaluator
-# Imported inside the stage that uses it: inference.py pulls in torch at
-# module scope, and importing this harness should not require the GPU stack.
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class StagedEvaluator:
         """Stage 1: Generate Presidio baseline and Privacy rewrites for all samples."""
         logger.info("Executing Stage 1: Baseline redaction and rewriter generation.")
         presidio = PresidioBaseline()
-        
+
         logger.info("Loading Qwen Rewriter model...")
         from src.rewriter import DEFAULT_BASE_MODEL, QwenRewriterInference
 
@@ -63,7 +62,7 @@ class StagedEvaluator:
             model_name_or_path=DEFAULT_BASE_MODEL,
             adapter_path="artifacts/rewriter_qlora"
         )
-        
+
         processed: List[Dict[str, Any]] = []
 
         for sample in samples:
@@ -71,10 +70,7 @@ class StagedEvaluator:
             gt = sample.get("ground_truth", {})
             prof_id = sample.get("profile_id", "unknown")
 
-            # Presidio explicit baseline
             redaction_res = presidio.analyze_sample(text)
-
-            # Qwen Rewriter generation
             rewrite_text = qwen_rewriter.rewrite(text)
 
             processed.append({
@@ -118,12 +114,6 @@ class StagedEvaluator:
         logger.info("Executing Stage 3: Held-out adversary probing.")
         attacker = Phi4MiniAttacker(load_model=self.use_heavy_models)
 
-        results = {
-            "original_probes": [],
-            "presidio_probes": [],
-            "rewrite_probes": [],
-        }
-
         orig_success_count = 0
         presidio_success_count = 0
         rewrite_success_count = 0
@@ -150,21 +140,18 @@ class StagedEvaluator:
                 total_evaluations += 1
                 hardness_stats[hardness]["total"] += 1
 
-                # Probe original
                 orig_pred = attacker.predict_attribute(orig, attr)
                 orig_succ = attacker.evaluate_success(orig_pred["prediction"], attr_gt)
                 if orig_succ:
                     orig_success_count += 1
                     hardness_stats[hardness]["orig"] += 1
 
-                # Probe presidio
                 presidio_pred = attacker.predict_attribute(presidio_text, attr)
                 presidio_succ = attacker.evaluate_success(presidio_pred["prediction"], attr_gt)
                 if presidio_succ:
                     presidio_success_count += 1
                     hardness_stats[hardness]["presidio"] += 1
 
-                # Probe rewrite
                 rewrite_pred = attacker.predict_attribute(rew, attr)
                 rewrite_succ = attacker.evaluate_success(rewrite_pred["prediction"], attr_gt)
                 if rewrite_succ:
@@ -191,16 +178,10 @@ class StagedEvaluator:
         """Execute all stages sequentially with memory cleanup and export final report."""
         logger.info(f"Starting staged evaluation on {len(samples)} samples.")
 
-        # Stage 1
         processed = self.stage_1_baseline_and_rewrite(samples)
-
-        # Stage 2
         processed = self.stage_2_utility_evaluation(processed)
-
-        # Stage 3
         adversary_summary = self.stage_3_adversary_probing(processed)
 
-        # Aggregate utility
         rewrite_cosines = [it["utility_rewrite"]["cosine_similarity"] for it in processed]
         rewrite_utilities = [it["utility_rewrite"]["utility_score"] for it in processed]
         presidio_cosines = [it["utility_presidio"]["cosine_similarity"] for it in processed]
@@ -229,6 +210,7 @@ def run_comparative_benchmark(
     methods: Sequence[str] = ("raw", "presidio", "prompt_baseline", "qlora_sft"),
     input_file: Optional[str] = None,
     output_dir: str = "reports",
+    limit: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Execute four-way comparative evaluation benchmark across privacy-preserving methods."""
     from src.contracts.schemas import AttributeName, ConversationState, RewriteMode
@@ -249,6 +231,8 @@ def run_comparative_benchmark(
                 line = line.strip()
                 if line:
                     records.append(json.loads(line))
+        if limit is not None and limit > 0:
+            records = records[:limit]
     else:
         # High-coverage fallback samples conforming to SynthPAI scenarios
         records = [
@@ -343,12 +327,12 @@ def run_comparative_benchmark(
 
 
 def main() -> None:
-    import time
     parser = argparse.ArgumentParser(description="Run staged InferenceGuard evaluation harness")
     parser.add_argument("-i", "--input_file", type=str, help="Optional evaluation dataset JSONL")
     parser.add_argument("-o", "--output_dir", type=str, default="reports", help="Output directory")
     parser.add_argument("--split", type=str, default="val", help="Data split to evaluate (val, test, train)")
     parser.add_argument("--methods", nargs="+", default=["raw", "presidio", "prompt_baseline", "qlora_sft"], help="Methods to compare")
+    parser.add_argument("--limit", "--max_samples", type=int, default=None, dest="limit", help="Max samples to evaluate")
     args = parser.parse_args()
 
     print(f"Executing 4-way comparative benchmark on split '{args.split}' for methods: {args.methods}")
@@ -357,6 +341,7 @@ def main() -> None:
         methods=args.methods,
         input_file=args.input_file,
         output_dir=args.output_dir,
+        limit=args.limit,
     )
     print("\n" + "=" * 78)
     print(f"{'Method':<18} | {'Attacker Acc (v)':<16} | {'Abstain % (^)':<13} | {'Bi-NLI (^)':<11} | {'p95 Lat (ms)':<12}")
@@ -372,6 +357,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import time
     main()
-
