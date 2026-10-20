@@ -413,22 +413,34 @@ def evaluate_multitask(
     }
 
 
-def train_multitask_modernbert(
-    data_path: str = "data/raw/synthpai.jsonl",
+def load_train_val_rows(
+    data_path: Optional[str] = "data/raw/synthpai.jsonl",
     splits_path: str = "artifacts/profile_splits.json",
-    output_dir: str = "artifacts/risk_model",
-    model_name: str = "answerdotai/ModernBERT-base",
-    epochs: int = 3,
-    batch_size: int = 16,
-    lr: float = 3e-5,
-    weight_decay: float = 0.01,
-    backbone: Optional[nn.Module] = None,
-    device: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Train MultiTaskModernBERTRiskModel on categorical taxonomy heads with Focal Loss."""
-    selected_device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    train_data: Optional[str] = None,
+    val_data: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Load train and validation records from pre-split files or raw SynthPAI dataset."""
+    def _load_jsonl(p: Path) -> List[Dict[str, Any]]:
+        records = []
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+        return records
+
+    train_file = Path(train_data) if train_data else None
+    val_file = Path(val_data) if val_data else None
+
+    if train_file and train_file.exists():
+        train_rows = _load_jsonl(train_file)
+        val_rows = _load_jsonl(val_file) if (val_file and val_file.exists()) else train_rows[:max(1, int(len(train_rows) * 0.2))]
+        return train_rows, val_rows
+
+    if not train_data and Path("data/splits/train.jsonl").exists():
+        train_rows = _load_jsonl(Path("data/splits/train.jsonl"))
+        val_rows = _load_jsonl(Path("data/splits/val.jsonl")) if Path("data/splits/val.jsonl").exists() else train_rows[:max(1, int(len(train_rows) * 0.2))]
+        return train_rows, val_rows
 
     from src.data.splits import load_or_fetch_synthpai
     rows = load_or_fetch_synthpai(Path(data_path) if data_path and Path(data_path).exists() else None)
@@ -449,6 +461,29 @@ def train_multitask_modernbert(
 
     train_rows = [r for r in rows if str(r.get("author") or r.get("profile_id")) in train_pids]
     val_rows = [r for r in rows if str(r.get("author") or r.get("profile_id")) in val_pids]
+    return train_rows, val_rows
+
+
+def train_multitask_modernbert(
+    data_path: Optional[str] = "data/raw/synthpai.jsonl",
+    splits_path: str = "artifacts/profile_splits.json",
+    train_data: Optional[str] = None,
+    val_data: Optional[str] = None,
+    output_dir: str = "artifacts/risk_model",
+    model_name: str = "answerdotai/ModernBERT-base",
+    epochs: int = 3,
+    batch_size: int = 16,
+    lr: float = 3e-5,
+    weight_decay: float = 0.01,
+    backbone: Optional[nn.Module] = None,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Train MultiTaskModernBERTRiskModel on categorical taxonomy heads with Focal Loss."""
+    selected_device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    train_rows, val_rows = load_train_val_rows(data_path, splits_path, train_data, val_data)
 
     tokenizer = None
     if backbone is None:
@@ -500,7 +535,7 @@ def train_multitask_modernbert(
 
         if val_metrics["macro_accuracy"] > best_acc:
             best_acc = val_metrics["macro_accuracy"]
-            best_dir = output_path / "best_model"
+            best_dir = output_path if output_path.name == "best_model" else (output_path / "best_model")
             best_dir.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), best_dir / "multitask_heads.pt")
             if tokenizer is not None:
@@ -514,8 +549,10 @@ def train_multitask_modernbert(
 
 
 def train_risk_model(
-    data_path: str = "data/raw/synthpai.jsonl",
+    data_path: Optional[str] = "data/raw/synthpai.jsonl",
     splits_path: str = "artifacts/profile_splits.json",
+    train_data: Optional[str] = None,
+    val_data: Optional[str] = None,
     output_dir: str = "artifacts/risk_model",
     model_name: str = "answerdotai/ModernBERT-base",
     epochs: int = 3,
@@ -531,6 +568,8 @@ def train_risk_model(
         return train_multitask_modernbert(
             data_path=data_path,
             splits_path=splits_path,
+            train_data=train_data,
+            val_data=val_data,
             output_dir=output_dir,
             model_name=model_name,
             epochs=epochs,
@@ -545,25 +584,7 @@ def train_risk_model(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    from src.data.splits import load_or_fetch_synthpai
-    rows = load_or_fetch_synthpai(Path(data_path) if data_path and Path(data_path).exists() else None)
-
-    splits_file = Path(splits_path)
-    if splits_file.exists():
-        with open(splits_file, "r", encoding="utf-8") as f:
-            splits_data = json.load(f)
-        train_pids = set(splits_data.get("train", []))
-        val_pids = set(splits_data.get("val", []))
-    else:
-        all_pids = list({str(r.get("author") or r.get("profile_id")) for r in rows})
-        np.random.seed(42)
-        np.random.shuffle(all_pids)
-        n_train = int(len(all_pids) * 0.8)
-        train_pids = set(all_pids[:n_train])
-        val_pids = set(all_pids[n_train:])
-
-    train_rows = [r for r in rows if str(r.get("author") or r.get("profile_id")) in train_pids]
-    val_rows = [r for r in rows if str(r.get("author") or r.get("profile_id")) in val_pids]
+    train_rows, val_rows = load_train_val_rows(data_path, splits_path, train_data, val_data)
 
     train_labels = np.array([extract_inferability_labels(r) for r in train_rows])
     pos_weights = compute_pos_weights(train_labels)
@@ -647,6 +668,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train multi-task risk classifier")
     parser.add_argument("--data_path", type=str, default="data/raw/synthpai.jsonl")
     parser.add_argument("--splits_path", type=str, default="artifacts/profile_splits.json")
+    parser.add_argument("--train_data", "--train_path", type=str, default=None, help="Path to pre-split train jsonl")
+    parser.add_argument("--val_data", "--val_path", type=str, default=None, help="Path to pre-split val jsonl")
     parser.add_argument("--output_dir", type=str, default="artifacts/risk_model")
     parser.add_argument("--model_name", type=str, default="answerdotai/ModernBERT-base")
     parser.add_argument("--model_type", type=str, choices=["multitask_modernbert", "binary_classifier"], default="multitask_modernbert")
@@ -675,6 +698,8 @@ if __name__ == "__main__":
     train_risk_model(
         data_path=args.data_path,
         splits_path=args.splits_path,
+        train_data=args.train_data,
+        val_data=args.val_data,
         output_dir=args.output_dir,
         model_name=args.model_name,
         model_type=args.model_type,
