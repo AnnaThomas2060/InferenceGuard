@@ -665,29 +665,6 @@ def generate_sft_dataset(
     return summary
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate SFT dataset for Qwen/Qwen2.5-1.5B-Instruct")
-    parser.add_argument("-i", "--input_file", type=str, required=True, help="Path to SynthPAI dataset")
-    parser.add_argument("-s", "--splits_file", type=str, default="artifacts/profile_splits.json", help="Path to profile_splits.json")
-    parser.add_argument("-c", "--output_chatml", type=str, default="data/qwen_sft_chatml.jsonl", help="ChatML output path")
-    parser.add_argument("-a", "--output_alpaca", type=str, default="data/qwen_sft_alpaca.jsonl", help="Alpaca output path")
-    parser.add_argument("-n", "--max_samples", type=int, default=1000, help="Max accepted samples")
-    args = parser.parse_args()
-
-    summary = generate_sft_dataset(
-        synthpai_path=args.input_file,
-        splits_path=args.splits_file,
-        output_chatml_path=args.output_chatml,
-        output_alpaca_path=args.output_alpaca,
-        max_samples=args.max_samples,
-    )
-    print(json.dumps(summary, indent=2))
-
-
-if __name__ == "__main__":
-    main()
-
-
 def format_cue_conditioned_instruction(
     pseudonymized_text: str,
     risk_report: Any,
@@ -886,3 +863,24 @@ class ParetoSFTDatasetBuilder:
 
         return stats
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate SFT dataset for Qwen/Qwen2.5-1.5B-Instruct")
+    parser.add_argument("-i", "--input", "--input_file", type=str, default="data/splits/train.jsonl", help="Path to SynthPAI dataset or train split")
+    parser.add_argument("-s", "--splits", "--splits_file", type=str, default="artifacts/profile_splits.json", help="Path to profile_splits.json")
+    parser.add_argument("-c", "-o", "--output", "--output_chatml", type=str, default="artifacts/rewriter_sft_chatml.jsonl", help="ChatML output path")
+    parser.add_argument("-a", "--output_alpaca", type=str, default="artifacts/rewriter_sft_alpaca.jsonl", help="Alpaca output path")
+    parser.add_argument("-n", "--max_samples", type=int, default=1000, help="Max accepted samples")
+    args = parser.parse_args()
+
+    summary = generate_sft_dataset(
+        synthpai_path=args.input,
+        splits_path=args.splits,
+        output_chatml_path=args.output,
+        output_alpaca_path=args.output_alpaca,
+        max_samples=args.max_samples,
+    )
+    print(json.dumps(summary, indent=2))
+
+
+if __name__ == "__main__":
+    main()

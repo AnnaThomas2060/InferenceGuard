@@ -140,9 +140,9 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="QLoRA Fine-tuning for InferenceGuard Rewriter")
-    parser.add_argument("--model_name", type=str, default=DEFAULT_BASE_MODEL,
+    parser.add_argument("--model_name", "--base_model", type=str, default=DEFAULT_BASE_MODEL,
                         help="Base model name. Must match what inference loads: see DEFAULT_BASE_MODEL.")
-    parser.add_argument("--dataset_path", type=str, required=True, help="Path to the JSONL dataset (ChatML or Alpaca format)")
+    parser.add_argument("--dataset_path", "--train_path", type=str, required=True, help="Path to the JSONL dataset (ChatML or Alpaca format)")
     parser.add_argument("--output_dir", type=str, default="artifacts/rewriter_qlora", help="Output directory for adapters")
     parser.add_argument("--batch_size", type=int, default=4, help="Per device train batch size")
     parser.add_argument("--learning_rate", type=float, default=2e-4, help="Learning rate")
