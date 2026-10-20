@@ -21,6 +21,15 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 import yaml
 
+try:
+    from scripts.validate_experiment import (
+        validate_session08_reportability,
+    )
+except ModuleNotFoundError:
+    from validate_experiment import (
+        validate_session08_reportability,
+    )
+
 
 ACCEPT_DECISIONS = {
     "accept",
@@ -1062,6 +1071,164 @@ def summarize_by_scenario(
     return result
 
 
+
+def summarize_session08_reportability(
+    report: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Convert the Session 08 reportability gate into a compact,
+    machine-readable summary.
+
+    Privacy and model-based NLI claims are evaluated separately so
+    diagnostic fallback outputs can remain available without being
+    presented as headline evidence.
+    """
+    result = validate_session08_reportability(
+        report=report,
+        config=config,
+        source="evaluation report",
+    )
+
+    adversary = report.get(
+        "adversary_evaluation",
+        {},
+    )
+
+    expected_attacker = config.get(
+        "attacker",
+        {},
+    ).get("name")
+
+    privacy_ok = (
+        isinstance(adversary, dict)
+        and adversary.get(
+            "attacker_model_id"
+        ) == expected_attacker
+        and adversary.get(
+            "attacker_mode"
+        ) == "model"
+        and adversary.get(
+            "reportable_as_held_out"
+        ) is True
+        and report.get(
+            "dataset_revision"
+        ) == config.get(
+            "dataset",
+            {},
+        ).get("revision")
+        and report.get(
+            "split_name"
+        ) == config.get(
+            "dataset",
+            {},
+        ).get("split")
+        and bool(
+            report.get(
+                "split_manifest_sha256"
+            )
+        )
+        and bool(
+            report.get(
+                "git_commit_sha"
+            )
+        )
+    )
+
+    samples = report.get(
+        "samples",
+        [],
+    )
+
+    utility_backends = []
+
+    rewrite_provenance_ok = True
+
+    if not isinstance(samples, list):
+        samples = []
+        rewrite_provenance_ok = False
+
+    for sample in samples:
+        if not isinstance(sample, dict):
+            rewrite_provenance_ok = False
+            continue
+
+        utility = sample.get(
+            "utility_rewrite",
+            {},
+        )
+
+        if isinstance(utility, dict):
+            utility_backends.append(
+                utility.get(
+                    "utility_backend"
+                )
+            )
+        else:
+            utility_backends.append(None)
+
+        if not sample.get(
+            "rewrite_engine"
+        ):
+            rewrite_provenance_ok = False
+
+    if not utility_backends:
+        nli_status = "BLOCKED"
+
+    elif any(
+        backend is None
+        for backend in utility_backends
+    ):
+        nli_status = "BLOCKED"
+
+    elif all(
+        backend == "model"
+        for backend in utility_backends
+    ):
+        nli_status = "PASS"
+
+    else:
+        nli_status = "DIAGNOSTIC_ONLY"
+
+    return {
+        "overall_status":
+            "PASS"
+            if result.ok
+            else "BLOCKED",
+
+        "privacy_claim":
+            "PASS"
+            if privacy_ok
+            else "BLOCKED",
+
+        "model_based_nli_claim":
+            nli_status,
+
+        "rewrite_provenance":
+            "PASS"
+            if rewrite_provenance_ok
+            else "BLOCKED",
+
+        "headline_privacy_metrics_allowed":
+            privacy_ok,
+
+        "model_nli_metrics_allowed":
+            nli_status == "PASS",
+
+        "error_count":
+            len(result.errors),
+
+        "warning_count":
+            len(result.warnings),
+
+        "errors":
+            list(result.errors),
+
+        "warnings":
+            list(result.warnings),
+    }
+
+
 def build_summary(
     records: List[Dict[str, Any]],
     config: Dict[str, Any],
@@ -1223,6 +1390,218 @@ def build_summary(
             summarize_by_scenario(
                 records
             ),
+    }
+
+
+
+def build_session08_evaluation_summary(
+    report: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Build a Session 08 held-out evaluation summary.
+
+    Diagnostic metrics are always retained. Headline metrics are exposed
+    only when the corresponding provenance gate allows them.
+    """
+    reportability = summarize_session08_reportability(
+        report=report,
+        config=config,
+    )
+
+    adversary = report.get(
+        "adversary_evaluation",
+        {},
+    )
+
+    if not isinstance(adversary, dict):
+        adversary = {}
+
+    utility_summary = report.get(
+        "utility_summary",
+        {},
+    )
+
+    if not isinstance(utility_summary, dict):
+        utility_summary = {}
+
+    privacy_diagnostic = {
+        "original_asr":
+            adversary.get(
+                "original_asr"
+            ),
+        "presidio_asr":
+            adversary.get(
+                "presidio_asr"
+            ),
+        "inferenceguard_asr":
+            adversary.get(
+                "inferenceguard_asr"
+            ),
+        "total_probes":
+            adversary.get(
+                "total_probes"
+            ),
+    }
+
+    utility_diagnostic = dict(
+        utility_summary
+    )
+
+    if reportability[
+        "headline_privacy_metrics_allowed"
+    ]:
+        headline_privacy = dict(
+            privacy_diagnostic
+        )
+    else:
+        headline_privacy = None
+
+    if reportability[
+        "model_nli_metrics_allowed"
+    ]:
+        headline_utility = dict(
+            utility_diagnostic
+        )
+    else:
+        headline_utility = None
+
+    samples = report.get(
+        "samples",
+        [],
+    )
+
+    if not isinstance(samples, list):
+        samples = []
+
+    utility_backend_counts: Counter[str] = Counter()
+    rewrite_engine_counts: Counter[str] = Counter()
+
+    unchanged_elevated_risk = 0
+
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+
+        utility = sample.get(
+            "utility_rewrite",
+            {},
+        )
+
+        if isinstance(utility, dict):
+            backend = utility.get(
+                "utility_backend"
+            )
+
+            if backend:
+                utility_backend_counts[
+                    str(backend)
+                ] += 1
+
+        engine = sample.get(
+            "rewrite_engine"
+        )
+
+        if engine:
+            rewrite_engine_counts[
+                str(engine)
+            ] += 1
+
+        if (
+            sample.get("risk_band")
+            in {"HIGH", "MEDIUM"}
+            and sample.get(
+                "rewrite_changed"
+            )
+            is False
+        ):
+            unchanged_elevated_risk += 1
+
+    return {
+        "experiment_id":
+            config.get(
+                "experiment_id"
+            ),
+        "session":
+            config.get(
+                "session"
+            ),
+        "experiment_type":
+            config.get(
+                "experiment_type"
+            ),
+        "schema_version":
+            config.get(
+                "schema_version"
+            ),
+
+        "sample_count":
+            report.get(
+                "sample_count",
+                len(samples),
+            ),
+
+        "provenance": {
+            "dataset_revision":
+                report.get(
+                    "dataset_revision"
+                ),
+            "split_name":
+                report.get(
+                    "split_name"
+                ),
+            "split_manifest_sha256":
+                report.get(
+                    "split_manifest_sha256"
+                ),
+            "git_commit_sha":
+                report.get(
+                    "git_commit_sha"
+                ),
+            "attacker_model_id":
+                adversary.get(
+                    "attacker_model_id"
+                ),
+            "attacker_mode":
+                adversary.get(
+                    "attacker_mode"
+                ),
+            "reportable_as_held_out":
+                adversary.get(
+                    "reportable_as_held_out"
+                ),
+            "utility_backend_counts":
+                dict(
+                    sorted(
+                        utility_backend_counts.items()
+                    )
+                ),
+            "rewrite_engine_counts":
+                dict(
+                    sorted(
+                        rewrite_engine_counts.items()
+                    )
+                ),
+        },
+
+        "reportability":
+            reportability,
+
+        "headline_metrics": {
+            "privacy":
+                headline_privacy,
+            "model_based_utility":
+                headline_utility,
+        },
+
+        "diagnostic_metrics": {
+            "privacy":
+                privacy_diagnostic,
+            "utility":
+                utility_diagnostic,
+            "unchanged_elevated_risk_count":
+                unchanged_elevated_risk,
+        },
     }
 
 
@@ -1409,15 +1788,67 @@ def main() -> int:
             "were loaded."
         )
 
-    summary = build_summary(
-        records=records,
-        config=config,
-    )
+    if (
+        config.get("experiment_type")
+        == "heldout_evaluation"
+    ):
+        if len(records) != 1:
+            raise ValueError(
+                "heldout_evaluation expects exactly "
+                "one evaluation report JSON object."
+            )
+
+        summary = build_session08_evaluation_summary(
+            report=records[0],
+            config=config,
+        )
+    else:
+        summary = build_summary(
+            records=records,
+            config=config,
+        )
 
     write_outputs(
         summary=summary,
         output_dir=output_dir,
     )
+
+    if (
+        config.get("experiment_type")
+        == "heldout_evaluation"
+    ):
+        print(
+            "\n=== Held-out evaluation summary ==="
+        )
+
+        print(
+            "Reportability:",
+            summary["reportability"]["overall_status"],
+        )
+
+        print(
+            "Privacy claim:",
+            summary["reportability"]["privacy_claim"],
+        )
+
+        print(
+            "Model-based NLI claim:",
+            summary["reportability"][
+                "model_based_nli_claim"
+            ],
+        )
+
+        if summary["reportability"]["errors"]:
+            print("\nBlocking reasons:")
+            for error in summary["reportability"]["errors"]:
+                print("-", error)
+
+        if summary["reportability"]["warnings"]:
+            print("\nWarnings:")
+            for warning in summary["reportability"]["warnings"]:
+                print("-", warning)
+
+        return 0
 
     print(
         "\n=== Experiment summary ==="

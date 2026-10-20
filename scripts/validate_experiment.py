@@ -190,6 +190,260 @@ def valid_system_states(config: Dict[str, Any]) -> set[str]:
     return SESSION06_SYSTEM_STATES
 
 
+
+def validate_session08_config(
+    config: Dict[str, Any],
+) -> ValidationResult:
+    """
+    Validate the Session 08 held-out evaluation contract.
+
+    This gate checks whether an experiment is configured in a way that
+    could legitimately produce reportable held-out privacy results.
+    It does not validate the results themselves; that is handled by the
+    post-run reportability gate.
+    """
+    result = ValidationResult()
+
+    if config.get("experiment_type") != "heldout_evaluation":
+        return result
+
+    if config.get("schema_version") != "session08_v1":
+        result.error(
+            "heldout_evaluation requires schema_version='session08_v1'."
+        )
+
+    dataset = config.get("dataset")
+
+    if not isinstance(dataset, dict):
+        result.error(
+            "dataset section is required for heldout_evaluation."
+        )
+    else:
+        revision = dataset.get("revision")
+        split = dataset.get("split")
+
+        if (
+            not isinstance(revision, str)
+            or not revision.strip()
+            or revision == "TBD"
+        ):
+            result.error(
+                "Held-out evaluation requires a pinned dataset revision."
+            )
+
+        if split != "test":
+            result.error(
+                "Held-out evaluation must use dataset.split='test'."
+            )
+
+    split_cfg = config.get("split_provenance")
+
+    if not isinstance(split_cfg, dict):
+        result.error(
+            "split_provenance section is required for heldout_evaluation."
+        )
+    else:
+        required_split_fields = (
+            "profile_split_file",
+            "manifest_file",
+            "expected_seed",
+            "require_profile_disjoint",
+            "require_manifest_hashes",
+        )
+
+        for field in required_split_fields:
+            if field not in split_cfg:
+                result.error(
+                    f"split_provenance missing required field '{field}'."
+                )
+
+        expected_seed = split_cfg.get("expected_seed")
+
+        if (
+            isinstance(expected_seed, int)
+            and expected_seed != config.get("random_seed")
+        ):
+            result.error(
+                "split_provenance.expected_seed must match random_seed."
+            )
+
+        if split_cfg.get("require_profile_disjoint") is not True:
+            result.error(
+                "Held-out evaluation must require profile-disjoint splits."
+            )
+
+        if split_cfg.get("require_manifest_hashes") is not True:
+            result.error(
+                "Held-out evaluation must require split manifest hashes."
+            )
+
+        profile_split_file = split_cfg.get("profile_split_file")
+
+        if isinstance(profile_split_file, str):
+            profile_path = Path(profile_split_file)
+
+            if not profile_path.exists():
+                result.error(
+                    f"Profile split file not found: {profile_split_file}"
+                )
+
+        manifest_file = split_cfg.get("manifest_file")
+
+        if isinstance(manifest_file, str):
+            manifest_path = Path(manifest_file)
+
+            if not manifest_path.exists():
+                result.error(
+                    f"Split manifest file not found: {manifest_file}"
+                )
+
+    attacker = config.get("attacker")
+
+    if not isinstance(attacker, dict):
+        result.error(
+            "attacker section is required for heldout_evaluation."
+        )
+    else:
+        if not attacker.get("name"):
+            result.error(
+                "attacker.name must be specified."
+            )
+
+        if attacker.get("required_mode") != "model":
+            result.error(
+                "Held-out privacy claims require attacker.required_mode='model'."
+            )
+
+    utility = config.get("utility_evaluator")
+
+    if not isinstance(utility, dict):
+        result.error(
+            "utility_evaluator section is required for heldout_evaluation."
+        )
+    else:
+        if not utility.get("nli_model"):
+            result.error(
+                "utility_evaluator.nli_model must be specified."
+            )
+
+        if (
+            utility.get("required_backend_for_nli_claims")
+            != "model"
+        ):
+            result.error(
+                "NLI claims require utility backend 'model'."
+            )
+
+    evaluation = config.get("evaluation")
+
+    if not isinstance(evaluation, dict):
+        result.error(
+            "evaluation section is required for heldout_evaluation."
+        )
+    else:
+        if evaluation.get("profile_disjoint_test_only") is not True:
+            result.error(
+                "Held-out evaluation must require the profile-disjoint test split."
+            )
+
+        if evaluation.get("heavy_models_required") is not True:
+            result.error(
+                "Held-out evaluation must require heavy models."
+            )
+
+    reportability = config.get("reportability")
+
+    if not isinstance(reportability, dict):
+        result.error(
+            "reportability section is required for heldout_evaluation."
+        )
+    else:
+        privacy = reportability.get("privacy", {})
+        utility_rules = reportability.get("utility", {})
+        rewrite_rules = reportability.get("rewrite", {})
+
+        required_privacy_rules = (
+            "require_attacker_model_match",
+            "require_attacker_mode_model",
+            "require_reportable_as_held_out",
+            "require_test_split",
+            "require_pinned_dataset_revision",
+            "require_split_manifest",
+        )
+
+        for rule in required_privacy_rules:
+            if privacy.get(rule) is not True:
+                result.error(
+                    f"reportability.privacy.{rule} must be true."
+                )
+
+        if (
+            utility_rules.get(
+                "require_model_backend_for_nli_claims"
+            )
+            is not True
+        ):
+            result.error(
+                "reportability.utility."
+                "require_model_backend_for_nli_claims must be true."
+            )
+
+        if (
+            utility_rules.get(
+                "fallback_metrics_diagnostic_only"
+            )
+            is not True
+        ):
+            result.error(
+                "reportability.utility."
+                "fallback_metrics_diagnostic_only must be true."
+            )
+
+        if (
+            rewrite_rules.get(
+                "require_engine_provenance"
+            )
+            is not True
+        ):
+            result.error(
+                "reportability.rewrite."
+                "require_engine_provenance must be true."
+            )
+
+        if (
+            rewrite_rules.get(
+                "unchanged_high_risk_is_not_protected"
+            )
+            is not True
+        ):
+            result.error(
+                "reportability.rewrite."
+                "unchanged_high_risk_is_not_protected must be true."
+            )
+
+    validation = config.get("validation", {})
+
+    required_validation_flags = (
+        "fail_on_dataset_revision_mismatch",
+        "fail_on_split_mismatch",
+        "fail_on_missing_split_manifest",
+        "fail_on_attacker_model_mismatch",
+        "fail_on_non_model_attacker_for_privacy_claim",
+        "fail_on_false_heldout_reportability",
+        "block_nli_claims_on_fallback_backend",
+        "require_rewrite_engine_provenance",
+        "require_git_commit_sha",
+    )
+
+    for flag in required_validation_flags:
+        if validation.get(flag) is not True:
+            result.error(
+                f"validation.{flag} must be true for heldout_evaluation."
+            )
+
+    return result
+
+
 def validate_config(config: Dict[str, Any]) -> ValidationResult:
     result = ValidationResult()
 
@@ -215,6 +469,11 @@ def validate_config(config: Dict[str, Any]) -> ValidationResult:
 
     if not isinstance(session, int) or session <= 0:
         result.error("session must be a positive integer.")
+
+    if config.get("experiment_type") == "heldout_evaluation":
+        session08_result = validate_session08_config(config)
+        result.errors.extend(session08_result.errors)
+        result.warnings.extend(session08_result.warnings)
 
     if config.get("experiment_type") == "user_evaluation":
         user_cfg = config.get("user_study")
@@ -638,6 +897,218 @@ def validate_record(
                 "Confirm that this comes only from an approved "
                 "synthetic scenario."
             )
+
+    return result
+
+
+
+def validate_session08_reportability(
+    report: Dict[str, Any],
+    config: Dict[str, Any],
+    source: str = "evaluation report",
+) -> ValidationResult:
+    """
+    Decide whether a Session 08 evaluation result is eligible for
+    headline held-out privacy and model-based utility claims.
+
+    Diagnostic outputs may still exist when this gate fails, but they
+    must not be presented as reportable held-out results.
+    """
+    result = ValidationResult()
+    prefix = f"{source}: "
+
+    if config.get("experiment_type") != "heldout_evaluation":
+        return result
+
+    dataset = config.get("dataset", {})
+    attacker_cfg = config.get("attacker", {})
+    split_cfg = config.get("split_provenance", {})
+
+    # ---- Dataset provenance ----
+
+    dataset_revision = report.get(
+        "dataset_revision"
+    )
+
+    expected_revision = dataset.get(
+        "revision"
+    )
+
+    if dataset_revision != expected_revision:
+        result.error(
+            f"{prefix}dataset_revision mismatch: "
+            f"'{dataset_revision}' != '{expected_revision}'."
+        )
+
+    split_name = report.get("split_name")
+
+    if split_name != dataset.get("split"):
+        result.error(
+            f"{prefix}split_name mismatch: "
+            f"'{split_name}' != '{dataset.get('split')}'."
+        )
+
+    manifest_hash = report.get(
+        "split_manifest_sha256"
+    )
+
+    if (
+        not isinstance(manifest_hash, str)
+        or not manifest_hash.strip()
+    ):
+        result.error(
+            f"{prefix}split_manifest_sha256 is required."
+        )
+
+    git_commit_sha = report.get(
+        "git_commit_sha"
+    )
+
+    if (
+        not isinstance(git_commit_sha, str)
+        or not git_commit_sha.strip()
+    ):
+        result.error(
+            f"{prefix}git_commit_sha is required."
+        )
+
+    # ---- Held-out adversary provenance ----
+
+    adversary = report.get(
+        "adversary_evaluation"
+    )
+
+    if not isinstance(adversary, dict):
+        result.error(
+            f"{prefix}adversary_evaluation is required."
+        )
+    else:
+        expected_attacker = attacker_cfg.get(
+            "name"
+        )
+
+        actual_attacker = adversary.get(
+            "attacker_model_id"
+        )
+
+        if actual_attacker != expected_attacker:
+            result.error(
+                f"{prefix}attacker_model_id mismatch: "
+                f"'{actual_attacker}' != '{expected_attacker}'."
+            )
+
+        attacker_mode = adversary.get(
+            "attacker_mode"
+        )
+
+        if attacker_mode != "model":
+            result.error(
+                f"{prefix}held-out privacy result is not reportable "
+                f"because attacker_mode='{attacker_mode}'."
+            )
+
+        if (
+            adversary.get(
+                "reportable_as_held_out"
+            )
+            is not True
+        ):
+            result.error(
+                f"{prefix}reportable_as_held_out must be true."
+            )
+
+    # ---- Utility provenance ----
+
+    samples = report.get("samples")
+
+    if not isinstance(samples, list):
+        result.error(
+            f"{prefix}samples must be a list."
+        )
+        samples = []
+
+    fallback_utility_count = 0
+    missing_utility_backend_count = 0
+    missing_rewrite_engine_count = 0
+    unchanged_high_risk_count = 0
+
+    for index, sample in enumerate(
+        samples,
+        start=1,
+    ):
+        if not isinstance(sample, dict):
+            result.error(
+                f"{prefix}sample {index} must be an object."
+            )
+            continue
+
+        utility_rewrite = sample.get(
+            "utility_rewrite",
+            {}
+        )
+
+        if isinstance(
+            utility_rewrite,
+            dict,
+        ):
+            backend = utility_rewrite.get(
+                "utility_backend"
+            )
+
+            if backend is None:
+                missing_utility_backend_count += 1
+            elif backend != "model":
+                fallback_utility_count += 1
+        else:
+            missing_utility_backend_count += 1
+
+        rewrite_engine = sample.get(
+            "rewrite_engine"
+        )
+
+        if not rewrite_engine:
+            missing_rewrite_engine_count += 1
+
+        risk_band = sample.get(
+            "risk_band"
+        )
+
+        rewrite_changed = sample.get(
+            "rewrite_changed"
+        )
+
+        if (
+            risk_band in {"HIGH", "MEDIUM"}
+            and rewrite_changed is False
+        ):
+            unchanged_high_risk_count += 1
+
+    if missing_utility_backend_count:
+        result.error(
+            f"{prefix}{missing_utility_backend_count} sample(s) "
+            "are missing utility_backend provenance."
+        )
+
+    if fallback_utility_count:
+        result.warning(
+            f"{prefix}{fallback_utility_count} sample(s) used "
+            "fallback utility scoring. Their NLI metrics are "
+            "diagnostic only and must not be reported as "
+            "model-based NLI results."
+        )
+
+    if missing_rewrite_engine_count:
+        result.error(
+            f"{prefix}{missing_rewrite_engine_count} sample(s) "
+            "are missing rewrite_engine provenance."
+        )
+
+    if unchanged_high_risk_count:
+        result.warning(
+            f"{prefix}{unchanged_high_risk_count} elevated-risk "
+            "sample(s) were unchanged. They must not count as "
+            "successful protection."
+        )
 
     return result
 
