@@ -8,12 +8,15 @@ Conforms strictly to PROJECT.md interface contracts.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import logging
+import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +29,7 @@ from src.evaluation.utility import UtilityEvaluator
 from src.product.report import (
     DEFAULT_UTILITY_FLOOR,
     PiiSpan,
+    PrivacyReport,
     compare,
     compose,
 )
@@ -48,13 +52,41 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="InferenceGuard API", version="1.0.0")
 
+
+def allowed_origins() -> List[str]:
+    """CORS origins from IG_ALLOWED_ORIGINS (comma-separated).
+
+    Defaults to "*" so the Colab + tunnel demo keeps working. That default,
+    combined with allow_credentials=True, lets any web page call this API
+    from a visitor's browser; set IG_ALLOWED_ORIGINS for anything beyond a
+    class demo. See docs/engineering/production-readiness.md.
+    """
+    raw = os.environ.get("IG_ALLOWED_ORIGINS", "*")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def make_risk_estimator(model: Any, tokenizer: Any, device: str) -> Callable[[str], Dict[str, float]]:
+    """Wrap a ModernBertRiskClassifier as the text -> scores function the API uses."""
+
+    def ml_risk_estimator(text: str) -> Dict[str, float]:
+        inputs = tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(device)
+        with torch.no_grad():
+            logits = model(**inputs)
+            scores = {attr: torch.sigmoid(logits[i]).item() for i, attr in enumerate(["age", "location", "occupation", "education"])}
+        scores["overall"] = max(scores.values()) if scores else 0.0
+        return scores
+
+    return ml_risk_estimator
+
 
 # Load trained ModernBERT if available
 risk_model = None
@@ -68,15 +100,7 @@ if model_path.exists():
         model = ModernBertRiskClassifier.from_pretrained(str(model_path)).to(device)
         model.eval()
 
-        def ml_risk_estimator(text: str) -> Dict[str, float]:
-            inputs = tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(device)
-            with torch.no_grad():
-                logits = model(**inputs)
-                scores = {attr: torch.sigmoid(logits[i]).item() for i, attr in enumerate(["age", "location", "occupation", "education"])}
-            scores["overall"] = max(scores.values()) if scores else 0.0
-            return scores
-            
-        risk_model = ml_risk_estimator
+        risk_model = make_risk_estimator(model, tokenizer, device)
         logger.info("ModernBERT loaded successfully!")
     except Exception as e:
         logger.warning(f"Failed to load ModernBERT: {e}")
@@ -177,16 +201,34 @@ class AnalyzeRequest(BaseModel):
     user_id: Optional[str] = Field("default_user", description="User identifier")
 
 
+# Which component produced rewritten_text. Session 06 participants trusted
+# output that was identical to their input, so the response has to say.
+ENGINE_QWEN = "qwen_adapter"
+ENGINE_HEURISTIC = "heuristic"
+ENGINE_PRESIDIO = "presidio_fallback"
+ENGINE_PASSTHROUGH = "passthrough_low_risk"
+REWRITE_ENGINES = (ENGINE_QWEN, ENGINE_HEURISTIC, ENGINE_PRESIDIO, ENGINE_PASSTHROUGH)
+
+TIMING_STAGES = ("presidio", "risk_model", "rewrite", "rescore", "utility", "total")
+
+
 class AnalyzeResponse(BaseModel):
     risk_summary: Dict[str, Any]
     rewritten_text: str
     presidio_text: str
-    utility_metrics: Dict[str, float]
+    utility_metrics: Dict[str, Any]
     turn_record: Optional[Dict[str, Any]] = None
     privacy_report: Optional[Dict[str, Any]] = None
     comparison: Optional[Dict[str, Any]] = None
     verdict: Optional[str] = None
     is_win: Optional[bool] = None
+    rewrite_engine: str
+    rewrite_changed: bool
+    # SHA-256 of exactly the rewritten_text string returned, so a study log
+    # can be checked against what the UI displayed without logging the text.
+    served_text_sha256: str
+    # Wall-clock milliseconds per stage; None for a stage that did not run.
+    timings_ms: Dict[str, Optional[float]]
 
 
 class RewriteRequest(BaseModel):
@@ -197,7 +239,103 @@ class RewriteRequest(BaseModel):
 class RewriteResponse(BaseModel):
     original_text: str
     rewritten_text: str
-    utility_metrics: Dict[str, float]
+    utility_metrics: Dict[str, Any]
+    rewrite_engine: str
+    rewrite_changed: bool
+
+
+def _normalise_ws(text: str) -> str:
+    return " ".join(text.split())
+
+
+def rewrite_changed(original: str, rewritten: str) -> bool:
+    """True if the rewrite differs from the input beyond whitespace."""
+    return _normalise_ws(original) != _normalise_ws(rewritten)
+
+
+def served_text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def presidio_stage(text: str) -> Tuple[List[PiiSpan], str]:
+    """Explicit PII spans on the input, and the Presidio-redacted baseline text."""
+    return extract_pii_spans(text), presidio_baseline.redact(text)
+
+
+def risk_stage(text: str, session_id: str, input_spans: List[PiiSpan]) -> Tuple[Any, PrivacyReport]:
+    """Multi-turn tracking and inferential risk (the risk model runs inside add_turn)."""
+    turn_rec = conversation_tracker.add_turn(raw_text=text, session_id=session_id)
+    cues_list: List[Cue] = []
+    for attr, score in turn_rec.turn_scores.items():
+        if score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
+            cues_list.append(Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2)))
+
+    # Delegate input privacy report composition to src.product.report.compose
+    before_report = compose(
+        pii_spans=input_spans,
+        risk_scores=turn_rec.turn_scores,
+        cues=cues_list,
+        leakage_delta=turn_rec.leakage_delta,
+    )
+    return turn_rec, before_report
+
+
+def select_rewrite(
+    text: str,
+    presidio_text: str,
+    risk_model_fn: Optional[Callable[[str], Dict[str, float]]],
+    max_risk: float,
+) -> Tuple[str, str]:
+    """Pick the served rewrite and name the engine that produced it.
+
+    Order: Qwen adapter (if loaded) -> heuristic candidates -> Presidio text.
+    QwenRewriterInference.rewrite() falls back to the heuristic internally on
+    a generation failure and returns a plain string, so an output identical
+    to that fallback is labelled "heuristic", never "qwen_adapter".
+    """
+    if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
+        qwen_out = qwen_rewriter.rewrite(text)
+        engine = ENGINE_HEURISTIC if qwen_out == qwen_rewriter._heuristic_fallback(text) else ENGINE_QWEN
+        selected = pareto_rejection_sample(
+            original=text,
+            candidates=[qwen_out],
+            risk_model_fn=risk_model_fn,
+            max_risk_threshold=max_risk,
+            min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
+        )
+        if selected is not None:
+            return selected[0], engine
+
+    selected = pareto_rejection_sample(
+        original=text,
+        candidates=generate_candidate_rewrites_heuristic(text),
+        risk_model_fn=risk_model_fn,
+        max_risk_threshold=max_risk,
+        min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
+    )
+    if selected is not None:
+        return selected[0], ENGINE_HEURISTIC
+    return presidio_text, ENGINE_PRESIDIO
+
+
+def rescore_stage(rewritten_text: str) -> PrivacyReport:
+    """Explicit PII and inferential risk on the rewrite."""
+    rewrite_spans = extract_pii_spans(rewritten_text)
+    after_scores = estimate_privacy_risk(rewritten_text, risk_model_fn=risk_model)
+    after_cues: List[Cue] = [
+        Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2))
+        for attr, score in after_scores.items()
+        if attr in ATTRIBUTES and score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR
+    ]
+    return compose(
+        pii_spans=rewrite_spans,
+        risk_scores=after_scores,
+        cues=after_cues,
+    )
+
+
+def _ms_since(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000.0, 3)
 
 
 @app.get("/health")
@@ -214,84 +352,44 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
 
     session_id = request.session_id or "default"
+    timings: Dict[str, Optional[float]] = {stage: None for stage in TIMING_STAGES}
+    t_total = time.perf_counter()
 
-    # 1. Multi-turn tracking
-    turn_rec = conversation_tracker.add_turn(raw_text=text, session_id=session_id)
+    # 1. Explicit PII detection on input + Presidio baseline redaction
+    t = time.perf_counter()
+    input_spans, presidio_text = presidio_stage(text)
+    timings["presidio"] = _ms_since(t)
 
-    # 2. Explicit PII detection on input
-    input_spans = extract_pii_spans(text)
+    # 2. Multi-turn tracking and inferential risk estimation & cues
+    t = time.perf_counter()
+    turn_rec, before_report = risk_stage(text, session_id, input_spans)
+    timings["risk_model"] = _ms_since(t)
 
-    # 3. Inferential risk estimation & cues
-    raw_scores = turn_rec.turn_scores
-    cues_list: List[Cue] = []
-    for attr, score in raw_scores.items():
-        if score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR:
-            cues_list.append(Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2)))
-
-    # Delegate input privacy report composition to src.product.report.compose
-    before_report = compose(
-        pii_spans=input_spans,
-        risk_scores=raw_scores,
-        cues=cues_list,
-        leakage_delta=turn_rec.leakage_delta,
-    )
-
-    # 4. Presidio baseline redaction
-    presidio_text = presidio_baseline.redact(text)
-
-    # 5. Rewriter candidate generation and rejection sampling
+    # 3. Rewriter candidate generation and rejection sampling
     if before_report.inferential_band == Band.LOW:
         rewritten_text = text
+        engine = ENGINE_PASSTHROUGH
         after_report = before_report
     else:
-        if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-            candidates = [qwen_rewriter.rewrite(text)]
-        else:
-            candidates = generate_candidate_rewrites_heuristic(text)
-
-        selected = pareto_rejection_sample(
-            original=text,
-            candidates=candidates,
-            max_risk_threshold=PROVISIONAL_MAX_RISK_THRESHOLD,
-            min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
+        t = time.perf_counter()
+        rewritten_text, engine = select_rewrite(
+            text,
+            presidio_text,
+            risk_model_fn=None,
+            max_risk=PROVISIONAL_MAX_RISK_THRESHOLD,
         )
+        timings["rewrite"] = _ms_since(t)
 
-        if selected is not None:
-            rewritten_text, _ = selected
-        else:
-            if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-                heuristic_cands = generate_candidate_rewrites_heuristic(text)
-                selected_heur = pareto_rejection_sample(
-                    original=text,
-                    candidates=heuristic_cands,
-                    max_risk_threshold=PROVISIONAL_MAX_RISK_THRESHOLD,
-                    min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
-                )
-                if selected_heur is not None:
-                    rewritten_text, _ = selected_heur
-                else:
-                    rewritten_text = presidio_text
-            else:
-                rewritten_text = presidio_text
+        t = time.perf_counter()
+        after_report = rescore_stage(rewritten_text)
+        timings["rescore"] = _ms_since(t)
 
-        # Extract explicit PII spans on rewrite
-        rewrite_spans = extract_pii_spans(rewritten_text)
-        after_scores = estimate_privacy_risk(rewritten_text, risk_model_fn=risk_model)
-        after_cues: List[Cue] = [
-            Cue(span=f"[{attr} cue]", attribute=attr, importance=round(score, 2))
-            for attr, score in after_scores.items()
-            if attr in ATTRIBUTES and score >= PROVISIONAL_CUE_IMPORTANCE_FLOOR
-        ]
-        after_report = compose(
-            pii_spans=rewrite_spans,
-            risk_scores=after_scores,
-            cues=after_cues,
-        )
-
-    # 6. Utility metrics
+    # 4. Utility metrics
+    t = time.perf_counter()
     utility_metrics = utility_evaluator.compute_metrics(text, rewritten_text)
+    timings["utility"] = _ms_since(t)
 
-    # 7. Comparison and Rule 2 veto enforcement
+    # 5. Comparison and Rule 2 veto enforcement
     utility_score = utility_metrics.get("utility_score")
     comparison = compare(
         before=before_report,
@@ -302,6 +400,7 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
 
     comparison_dict = dataclasses.asdict(comparison)
     comparison_dict["is_win"] = comparison.is_win
+    timings["total"] = _ms_since(t_total)
 
     return AnalyzeResponse(
         risk_summary=before_report.inferential.to_dict(),
@@ -313,6 +412,10 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         comparison=comparison_dict,
         verdict=comparison.verdict,
         is_win=comparison.is_win,
+        rewrite_engine=engine,
+        rewrite_changed=rewrite_changed(text, rewritten_text),
+        served_text_sha256=served_text_sha256(rewritten_text),
+        timings_ms=timings,
     )
 
 
@@ -323,42 +426,20 @@ def rewrite_text(request: RewriteRequest) -> RewriteResponse:
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
 
-    if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-        candidates = [qwen_rewriter.rewrite(text)]
-    else:
-        candidates = generate_candidate_rewrites_heuristic(text)
-
-    selected = pareto_rejection_sample(
-        original=text,
-        candidates=candidates,
+    rewritten, engine = select_rewrite(
+        text,
+        presidio_baseline.redact(text),
         risk_model_fn=risk_model,
-        max_risk_threshold=request.max_risk,
-        min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
+        max_risk=request.max_risk,
     )
-    if selected is not None:
-        rewritten, _ = selected
-    else:
-        if qwen_rewriter is not None and qwen_rewriter.is_adapter_loaded:
-            heuristic_cands = generate_candidate_rewrites_heuristic(text)
-            selected_heur = pareto_rejection_sample(
-                original=text,
-                candidates=heuristic_cands,
-                risk_model_fn=risk_model,
-                max_risk_threshold=request.max_risk,
-                min_cosine_threshold=PROVISIONAL_MIN_COSINE_THRESHOLD,
-            )
-            if selected_heur is not None:
-                rewritten, _ = selected_heur
-            else:
-                rewritten = presidio_baseline.redact(text)
-        else:
-            rewritten = presidio_baseline.redact(text)
 
     utility = utility_evaluator.compute_metrics(text, rewritten)
     return RewriteResponse(
         original_text=text,
         rewritten_text=rewritten,
         utility_metrics=utility,
+        rewrite_engine=engine,
+        rewrite_changed=rewrite_changed(text, rewritten),
     )
 
 

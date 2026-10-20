@@ -1,0 +1,362 @@
+{
+  "created_at": "2026-10-17T22:24:39",
+  "command": "python scripts/benchmark_latency.py --rewriter heuristic --device cpu --runs 5",
+  "hardware": {
+    "cpu": "Apple M4 Pro",
+    "cpu_count": 12,
+    "torch_threads": 8,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.11.14",
+    "torch": "2.14.1",
+    "transformers": "5.20.1",
+    "device": "cpu",
+    "gpu": null
+  },
+  "config": {
+    "rewriter": "heuristic",
+    "model_id": null,
+    "adapter_loaded": false,
+    "risk_model": "answerdotai/ModernBERT-base backbone, untrained heads (latency only)",
+    "presidio_backend": "regex fallback",
+    "utility_backend": "fallback",
+    "runs": 5,
+    "warmup": 1,
+    "messages": 20,
+    "message_words_min": 12,
+    "message_words_max": 104,
+    "benchmark_note": "every message runs every stage; LOW-risk messages skip rewrite and rescore in /analyze"
+  },
+  "peak_rss_mb": 1021.5,
+  "stages_ms": {
+    "presidio": {
+      "p50": 0.055,
+      "p95": 0.101,
+      "mean": 0.056,
+      "min": 0.023,
+      "max": 0.111,
+      "n": 100
+    },
+    "risk_model": {
+      "p50": 26.539,
+      "p95": 39.904,
+      "mean": 27.046,
+      "min": 19.571,
+      "max": 42.394,
+      "n": 100
+    },
+    "rewrite": {
+      "p50": 0.087,
+      "p95": 0.475,
+      "mean": 0.144,
+      "min": 0.033,
+      "max": 0.575,
+      "n": 100
+    },
+    "rescore": {
+      "p50": 26.782,
+      "p95": 39.362,
+      "mean": 26.778,
+      "min": 19.5,
+      "max": 41.732,
+      "n": 100
+    },
+    "utility": {
+      "p50": 0.09,
+      "p95": 0.191,
+      "mean": 0.1,
+      "min": 0.039,
+      "max": 0.238,
+      "n": 100
+    },
+    "total": {
+      "p50": 53.514,
+      "p95": 79.798,
+      "mean": 54.125,
+      "min": 39.625,
+      "max": 84.546,
+      "n": 100
+    }
+  },
+  "per_message": [
+    {
+      "index": 0,
+      "words": 12,
+      "total_ms": [
+        41.859,
+        42.094,
+        41.357,
+        41.35,
+        42.457
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 1,
+      "words": 12,
+      "total_ms": [
+        40.286,
+        39.753,
+        41.435,
+        39.625,
+        40.05
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 2,
+      "words": 13,
+      "total_ms": [
+        42.717,
+        42.286,
+        42.596,
+        41.043,
+        44.803
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": true
+    },
+    {
+      "index": 3,
+      "words": 15,
+      "total_ms": [
+        44.387,
+        42.709,
+        42.438,
+        42.024,
+        45.589
+      ],
+      "band": "HIGH",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 4,
+      "words": 18,
+      "total_ms": [
+        39.794,
+        40.268,
+        40.394,
+        39.807,
+        40.694
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": true
+    },
+    {
+      "index": 5,
+      "words": 22,
+      "total_ms": [
+        39.822,
+        40.744,
+        39.806,
+        39.641,
+        40.07
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 6,
+      "words": 27,
+      "total_ms": [
+        41.823,
+        42.333,
+        42.938,
+        43.591,
+        41.175
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 7,
+      "words": 30,
+      "total_ms": [
+        50.73,
+        51.747,
+        50.508,
+        50.527,
+        49.972
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 8,
+      "words": 36,
+      "total_ms": [
+        51.047,
+        51.337,
+        52.062,
+        51.45,
+        51.783
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 9,
+      "words": 36,
+      "total_ms": [
+        52.757,
+        51.669,
+        51.837,
+        51.356,
+        50.208
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 10,
+      "words": 42,
+      "total_ms": [
+        62.811,
+        63.167,
+        63.843,
+        64.008,
+        62.661
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 11,
+      "words": 42,
+      "total_ms": [
+        55.266,
+        55.138,
+        54.735,
+        55.033,
+        54.383
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": true
+    },
+    {
+      "index": 12,
+      "words": 52,
+      "total_ms": [
+        55.685,
+        55.225,
+        56.246,
+        55.624,
+        54.39
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 13,
+      "words": 47,
+      "total_ms": [
+        54.805,
+        55.256,
+        55.273,
+        55.846,
+        54.272
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 14,
+      "words": 54,
+      "total_ms": [
+        56.632,
+        56.355,
+        55.985,
+        55.358,
+        56.553
+      ],
+      "band": "HIGH",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 15,
+      "words": 62,
+      "total_ms": [
+        62.462,
+        59.667,
+        59.206,
+        59.806,
+        64.239
+      ],
+      "band": "HIGH",
+      "engine": "heuristic",
+      "changed": true
+    },
+    {
+      "index": 16,
+      "words": 63,
+      "total_ms": [
+        63.543,
+        63.002,
+        63.843,
+        63.315,
+        68.628
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 17,
+      "words": 72,
+      "total_ms": [
+        65.041,
+        66.66,
+        64.504,
+        65.801,
+        71.114
+      ],
+      "band": "MEDIUM",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 18,
+      "words": 88,
+      "total_ms": [
+        78.871,
+        81.849,
+        81.737,
+        80.572,
+        84.546
+      ],
+      "band": "HIGH",
+      "engine": "presidio_fallback",
+      "changed": false
+    },
+    {
+      "index": 19,
+      "words": 104,
+      "total_ms": [
+        78.106,
+        79.757,
+        78.589,
+        78.994,
+        81.323
+      ],
+      "band": "MEDIUM",
+      "engine": "heuristic",
+      "changed": true
+    }
+  ]
+}
