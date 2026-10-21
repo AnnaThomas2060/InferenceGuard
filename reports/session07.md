@@ -93,8 +93,24 @@ north_star:
   Prompt Baseline, QLoRA SFT) on real validation split data with bidirectional NLI entailment.
   (evidence: `src/evaluation/run.py`, `reports/comparative_benchmark_val.json`)
 
-One pull request merged this week: **#56**. That is the whole of it, and the
-Individual contributions section says who did it.
+- **Measurement-provenance and reportability gates for held-out evaluation.**
+  Extended the Operations layer from validating user-study records to validating
+  whether evaluation outputs are actually eligible for reporting. Added a
+  Session 08 held-out evaluation contract, config-level and result-level
+  reportability gates, provenance-aware summary outputs, and explicit attacker /
+  utility-backend provenance. Heuristic-attacker results are blocked from
+  held-out privacy claims, fallback utility scores are marked diagnostic-only,
+  and unsupported headline metrics are withheld while diagnostic evidence is
+  preserved.
+  (evidence: PR #59, `configs/experiments/session08.yaml`,
+  `scripts/validate_experiment.py`, `scripts/summarize_experiment.py`,
+  `tests/test_experiment_ops.py`)
+
+Three pull requests merged this week: **#56**, **#58**, and **#59**.
+PR #56 repaired the evaluation instrumentation, PR #58 merged the Session 07
+Data&Eval / architecture update, and PR #59 added the Operations layer that
+determines whether evaluation outputs have sufficient provenance to support
+reportable claims.
 
 ## User evidence
 
@@ -178,9 +194,6 @@ rewriter when no adapter is present, and now says so in its response.
   06. We do not yet have a configuration that is both fast enough and good
   enough.
 
-- **Two of five members (Users&Research, Operations) have no visible repo work this week.**
-  Stated here rather than left to be inferred from the contributions section.
-
 ## Challenges / blockers
 
 - **The held-out run still has not happened.** It is now unblocked — the
@@ -246,9 +259,29 @@ number in this project that is not from a closed loop.
 
 - **Yiwei Jin (Users&Research):** opened Issue #60 on test methods，Issue #61, approved PR #59.
 
-- **Bingqi Lian (Operations):** no visible repo work this week. Last
-  contribution was PR #48, the Session 06 experiment-ops alignment, on
-  5 October.
+- **Bingqi Lian (Operations):**
+    - Implemented the Session 08 measurement-provenance and reportability
+      framework in PR #59, extending the experiment-operations layer from
+      record validation to deciding whether evaluation outputs are eligible
+      for headline reporting.
+    - Added the Session 08 held-out evaluation contract in
+      `configs/experiments/session08.yaml`, including requirements for pinned
+      dataset revision, test split, split manifest provenance, attacker mode,
+      utility backend, rewrite provenance, and git commit metadata.
+    - Added config-level and result-level reportability gates in
+      `scripts/validate_experiment.py`. Heuristic-attacker outputs are blocked
+      from held-out privacy claims, while fallback NLI/utility outputs are
+      retained as diagnostic-only rather than treated as model-based evidence.
+    - Extended `scripts/summarize_experiment.py` to separate reportable
+      headline metrics from diagnostic metrics, with explicit `PASS`,
+      `BLOCKED`, and `DIAGNOSTIC_ONLY` status and blocking reasons.
+    - Added provenance hooks for attacker mode and utility backend, plus
+      regression/integration coverage; `tests/test_experiment_ops.py`
+      increased from 19 to 32 passing tests, and PR #59 passed GitHub CI
+      before merge.
+    - (evidence: PR #59, `configs/experiments/session08.yaml`,
+      `scripts/validate_experiment.py`, `scripts/summarize_experiment.py`,
+      `tests/test_experiment_ops.py`)
 
 ## Lean canvas changes (if any)
 
