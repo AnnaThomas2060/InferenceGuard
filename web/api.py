@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -146,12 +147,20 @@ def find_adapter_path() -> Optional[Path]:
     candidates.extend([
         REPO_ROOT / "artifacts" / "rewriter_qlora",
         Path("artifacts/rewriter_qlora"),
+        REPO_ROOT / "artifacts" / "rewriter_qlora_1.5b",
+        Path("artifacts/rewriter_qlora_1.5b"),
+        REPO_ROOT / "artifacts" / "rewriter_qlora_0.5b",
+        Path("artifacts/rewriter_qlora_0.5b"),
+        Path("/content/drive/MyDrive/InferenceGuard/rewriter_0.5b"),
         Path("/content/drive/MyDrive/Inference-Guard/artifacts/rewriter_qlora"),
+        Path("/content/drive/MyDrive/Inference-Guard/artifacts/rewriter_qlora_0.5b"),
         Path("/content/Inference-Guard/artifacts/rewriter_qlora"),
+        Path("/content/Inference-Guard/artifacts/rewriter_qlora_0.5b"),
         Path("/content/artifacts/rewriter_qlora"),
+        Path("/content/artifacts/rewriter_qlora_0.5b"),
     ])
     for p in candidates:
-        if p.exists() and ((p / "adapter_config.json").exists() or p.is_dir()):
+        if p.exists() and (p / "adapter_config.json").exists():
             return p.resolve()
     return None
 
@@ -229,11 +238,21 @@ def get_qwen_rewriter():
     adapter_p = find_adapter_path()
     if adapter_p is not None:
         try:
-            from src.rewriter import DEFAULT_BASE_MODEL, QwenRewriterInference
-            logger.info("Loading Qwen Rewriter from '%s'...", adapter_p)
+            import json
+            from src.rewriter import QwenRewriterInference
+            from src.rewriter.inference import SMALL_STUDENT_MODEL
+            cfg_p = adapter_p / "adapter_config.json"
+            base_model = SMALL_STUDENT_MODEL
+            if cfg_p.exists():
+                try:
+                    cfg_data = json.loads(cfg_p.read_text(encoding="utf-8"))
+                    base_model = cfg_data.get("base_model_name_or_path", base_model)
+                except Exception:
+                    pass
+            logger.info("Loading Qwen Rewriter from '%s' (base: '%s')...", adapter_p, base_model)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             qwen_rewriter = QwenRewriterInference(
-                model_name_or_path=DEFAULT_BASE_MODEL,
+                model_name_or_path=base_model,
                 adapter_path=str(adapter_p),
                 device=device,
                 load_in_4bit=torch.cuda.is_available(),
@@ -512,7 +531,9 @@ def select_rewrite(
 
 
     # Heuristic Candidate Evaluation
-    heuristic_cands = generate_candidate_rewrites_heuristic(text)
+    from src.rewriter.inference import QwenRewriterInference
+    bank_cand = QwenRewriterInference._heuristic_fallback(text)
+    heuristic_cands = [bank_cand] + [c for c in generate_candidate_rewrites_heuristic(text) if c != bank_cand]
     selected = pareto_rejection_sample(
         original=text,
         candidates=heuristic_cands,
@@ -743,16 +764,45 @@ def launch_tunnel(
             proc = subprocess.Popen(
                 ["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
                 stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 text=True,
             )
-            return "http://localhost:8000 (cloudflared background)"
+            # Poll up to 12 seconds to extract the public *.trycloudflare.com URL
+            t_end = time.time() + 12.0
+            while time.time() < t_end and proc.poll() is None:
+                line = proc.stderr.readline() if proc.stderr else ""
+                match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line)
+                if match:
+                    url = match.group(0)
+                    logger.info(f"cloudflared tunnel established: {url}")
+                    return url
+                if not line:
+                    time.sleep(0.2)
+            return f"http://localhost:{port} (cloudflared background)"
         except Exception as e:
             logger.warning(f"cloudflared failed: {e}")
 
     return f"http://localhost:{port}"
 
 
-# Mount static files to serve the minimalist web frontend
+# Mount static files and define explicit root handlers to serve the minimalist web frontend
 web_dir = Path(__file__).resolve().parent
+
+
+@app.get("/", response_class=FileResponse)
+def serve_root() -> FileResponse:
+    """Serve the minimalist web UI index page."""
+    index_file = web_dir / "index.html"
+    if not index_file.exists():
+        raise HTTPException(status_code=404, detail="index.html not found.")
+    return FileResponse(str(index_file))
+
+
+@app.get("/index.html", response_class=FileResponse)
+def serve_index_html() -> FileResponse:
+    """Explicit alias for web UI index page."""
+    return serve_root()
+
+
 if web_dir.exists():
     app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="static")
