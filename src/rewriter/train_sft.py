@@ -7,8 +7,26 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import logging
+import os
+import sys
 from pathlib import Path
+import shutil
 from typing import Any, Callable, Dict, List, Optional
+
+# Guard against broken multimodal C++ binary extensions in Colab (torchvision, torchaudio CUDA mismatches)
+for _broken_pkg in ("torchvision", "torchaudio"):
+    sys.modules[_broken_pkg] = None
+    for _mod in list(sys.modules.keys()):
+        if _mod.startswith(f"{_broken_pkg}."):
+            del sys.modules[_mod]
+
+try:
+    import transformers.utils.import_utils as _iu
+
+    _iu.is_torchvision_available = lambda: False
+    _iu.is_torchaudio_available = lambda: False
+except Exception:
+    pass
 
 import torch
 from datasets import load_dataset
@@ -21,7 +39,7 @@ from transformers import (
 )
 from trl import SFTTrainer
 
-from src.rewriter.inference import DEFAULT_BASE_MODEL
+from src.rewriter.inference import DEFAULT_BASE_MODEL, SMALL_STUDENT_MODEL
 
 # Guard against PEFT dispatch bug when incompatible torchao (< 0.16.0) is pre-installed in Colab
 try:
@@ -45,13 +63,85 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+STUDENT_MODEL_ALIASES: Dict[str, str] = {
+    "qwen-0.6b": SMALL_STUDENT_MODEL,
+    "qwen0.6b": SMALL_STUDENT_MODEL,
+    "qwen3-0.6b": SMALL_STUDENT_MODEL,
+    "qwen-0.5b": SMALL_STUDENT_MODEL,
+    "qwen0.5b": SMALL_STUDENT_MODEL,
+    "0.6b": SMALL_STUDENT_MODEL,
+    "0.5b": SMALL_STUDENT_MODEL,
+    "qwen-1.5b": DEFAULT_BASE_MODEL,
+    "qwen1.5b": DEFAULT_BASE_MODEL,
+    "1.5b": DEFAULT_BASE_MODEL,
+}
+
+
+def resolve_model_name(model_name: str) -> str:
+    """Resolve model name or alias (e.g. 'qwen-0.6b' resolves to the small student model)."""
+    key = model_name.lower().strip()
+    return STUDENT_MODEL_ALIASES.get(key, model_name)
+
+
+def get_default_dataset_path() -> str:
+    """Resolve default SFT training dataset path in priority order."""
+    candidates = [
+        "data/sft/augmented_v1/train.jsonl",
+        "data/sft/teacher_v2/train.jsonl",
+        "data/sft/teacher_v1/train.jsonl",
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return p
+    return candidates[0]
+
+
+def detect_google_drive_path(drive_arg: Optional[str] = None) -> Optional[Path]:
+    """Auto-detect or resolve target Google Drive directory for saving checkpoints."""
+    if drive_arg:
+        return Path(drive_arg)
+    env_var = os.environ.get("GOOGLE_DRIVE_PATH") or os.environ.get("GDRIVE_DIR")
+    if env_var:
+        return Path(env_var)
+    colab_mount = Path("/content/drive/MyDrive")
+    if colab_mount.exists():
+        return colab_mount / "InferenceGuard" / "rewriter_checkpoints"
+    return None
+
+
+try:
+    from transformers import TrainerCallback
+
+    class GoogleDriveSyncCallback(TrainerCallback):
+        """Syncs intermediate checkpoints directly to mounted Google Drive to protect against Colab disconnects."""
+
+        def __init__(self, drive_path: Path, local_dir: Path):
+            self.drive_path = drive_path
+            self.local_dir = local_dir
+            self.drive_path.mkdir(parents=True, exist_ok=True)
+
+        def on_save(self, args, state, control, **kwargs):
+            try:
+                ckpts = sorted(self.local_dir.glob("checkpoint-*"), key=lambda p: p.stat().st_mtime)
+                if ckpts:
+                    latest = ckpts[-1]
+                    target = self.drive_path / latest.name
+                    shutil.copytree(latest, target, dirs_exist_ok=True)
+                    logger.info(f"[Google Drive Sync] Persisted intermediate checkpoint {latest.name} -> {target}")
+            except Exception as e:
+                logger.warning(f"[Google Drive Sync] Failed to sync checkpoint to Drive: {e}")
+except Exception:
+    GoogleDriveSyncCallback = None
+
+
 @dataclass
 class RewriterQLoRAConfig:
     """Configuration parameters for QLoRA fine-tuning with completion-only loss masking."""
     base_model_name: str = DEFAULT_BASE_MODEL
-    train_jsonl_path: str = "data/sft/train_queries_sft.jsonl"
-    val_jsonl_path: Optional[str] = "data/sft/val_queries_sft.jsonl"
+    train_jsonl_path: str = "data/sft/teacher_v1/train.jsonl"
+    val_jsonl_path: Optional[str] = None
     output_adapter_dir: str = "artifacts/rewriter_qlora"
+    drive_output_dir: Optional[str] = None
     lora_r: int = 32
     lora_alpha: int = 64
     lora_dropout: float = 0.10
@@ -64,6 +154,10 @@ class RewriterQLoRAConfig:
     warmup_ratio: float = 0.05
     neftune_noise_alpha: float = 5.0
     seed: int = 42
+    save_strategy: str = "steps"
+    save_steps: int = 50
+    save_total_limit: int = 3
+    max_steps: Optional[int] = None
 
 
 def get_warmup_kwargs(config_cls: Any, ratio: float = 0.05) -> Dict[str, Any]:
@@ -94,7 +188,8 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
     """Execute QLoRA fine-tuning with completion-only LM loss masking."""
     from trl import DataCollatorForCompletionOnlyLM, SFTConfig
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.base_model_name, trust_remote_code=True)
+    resolved_base_model = resolve_model_name(cfg.base_model_name)
+    tokenizer = AutoTokenizer.from_pretrained(resolved_base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
@@ -108,7 +203,7 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
             bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
         )
         base_model = AutoModelForCausalLM.from_pretrained(
-            cfg.base_model_name,
+            resolved_base_model,
             quantization_config=bnb_config,
             device_map="auto",
             trust_remote_code=True,
@@ -116,7 +211,7 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
         base_model = prepare_model_for_kbit_training(base_model)
     else:
         base_model = AutoModelForCausalLM.from_pretrained(
-            cfg.base_model_name,
+            resolved_base_model,
             device_map="cpu",
             trust_remote_code=True,
         )
@@ -152,6 +247,11 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
         tokenizer=tokenizer,
     )
 
+    drive_path = detect_google_drive_path(cfg.drive_output_dir)
+    callbacks = []
+    if drive_path and GoogleDriveSyncCallback is not None:
+        callbacks.append(GoogleDriveSyncCallback(drive_path=drive_path, local_dir=Path(cfg.output_adapter_dir)))
+
     sft_kwargs = {
         "output_dir": cfg.output_adapter_dir,
         "dataset_text_field": "text",
@@ -161,8 +261,11 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
         "learning_rate": cfg.learning_rate,
         "num_train_epochs": cfg.num_train_epochs,
         "lr_scheduler_type": "cosine",
-        "weight_decay": 0.01,
+        "weight_decay": cfg.weight_decay,
         "logging_steps": 10,
+        "save_strategy": cfg.save_strategy,
+        "save_steps": cfg.save_steps,
+        "save_total_limit": cfg.save_total_limit,
         "bf16": is_cuda and torch.cuda.is_bf16_supported(),
         "fp16": is_cuda and not torch.cuda.is_bf16_supported(),
         "use_cpu": not is_cuda,
@@ -171,6 +274,9 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
         "report_to": "none",
         **get_warmup_kwargs(SFTConfig, cfg.warmup_ratio),
     }
+    if cfg.max_steps is not None and cfg.max_steps > 0:
+        sft_kwargs["max_steps"] = cfg.max_steps
+
     sft_args = SFTConfig(**filter_supported_kwargs(SFTConfig, sft_kwargs))
 
     trainer = SFTTrainer(
@@ -180,6 +286,7 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
         peft_config=peft_config,
         processing_class=tokenizer,
         data_collator=collator,
+        callbacks=callbacks,
         args=sft_args,
     )
 
@@ -188,20 +295,23 @@ def train_qlora_rewriter(cfg: RewriterQLoRAConfig) -> None:
     trainer.model.save_pretrained(cfg.output_adapter_dir)
     tokenizer.save_pretrained(cfg.output_adapter_dir)
 
+    if drive_path:
+        drive_path.mkdir(parents=True, exist_ok=True)
+        trainer.model.save_pretrained(str(drive_path))
+        tokenizer.save_pretrained(str(drive_path))
+        logger.info(f"Persisted final adapter and tokenizer to Google Drive: {drive_path}")
+
 
 def parse_args():
-    default_dataset = (
-        "data/sft/train_queries_sft.jsonl"
-        if Path("data/sft/train_queries_sft.jsonl").exists()
-        else "artifacts/rewriter_sft_chatml.jsonl"
-    )
+    default_dataset = get_default_dataset_path()
     parser = argparse.ArgumentParser(description="QLoRA Fine-tuning for InferenceGuard Rewriter")
-    parser.add_argument("--model_name", "--base_model", type=str, default=DEFAULT_BASE_MODEL,
-                        help="Base model name. Must match what inference loads: see DEFAULT_BASE_MODEL.")
+    parser.add_argument("--model_name", "--base_model", "--model_name_or_path", type=str, default=DEFAULT_BASE_MODEL,
+                        help="Base model name or alias (e.g. qwen-0.6b, qwen-1.5b, or a HF model id).")
     parser.add_argument(
         "--dataset_path",
         "--train_path",
         "--train_data",
+        "--train_file",
         type=str,
         default=default_dataset,
         help="Path to the JSONL dataset (ChatML or Alpaca format)",
@@ -209,15 +319,23 @@ def parse_args():
     parser.add_argument(
         "--val_path",
         "--val_data",
+        "--val_file",
         type=str,
         default=None,
         help="Path to validation JSONL dataset",
     )
     parser.add_argument("--output_dir", type=str, default="artifacts/rewriter_qlora", help="Output directory for adapters")
-    parser.add_argument("--batch_size", type=int, default=4, help="Per device train batch size")
+    parser.add_argument("--drive_path", "--gdrive_dir", "--drive_output_dir", type=str, default=None,
+                        help="Mounted Google Drive path to save intermediate checkpoints and final weights directly (prevents Colab disconnection data loss)")
+    parser.add_argument("--save_strategy", type=str, default="steps", choices=["steps", "epoch", "no"], help="Checkpoint save strategy")
+    parser.add_argument("--save_steps", type=int, default=50, help="Checkpoint save step frequency")
+    parser.add_argument("--save_total_limit", type=int, default=3, help="Max checkpoints to retain on disk/drive")
+    parser.add_argument("--batch_size", "--per_device_train_batch_size", type=int, default=4, help="Per device train batch size")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Number of updates steps to accumulate")
     parser.add_argument("--learning_rate", "--lr", type=float, default=2e-4, help="Learning rate")
-    parser.add_argument("--epochs", type=int, default=4, help="Number of training epochs")
-    parser.add_argument("--max_length", type=int, default=1024, help="Maximum sequence length")
+    parser.add_argument("--epochs", "--num_train_epochs", type=int, default=4, help="Number of training epochs")
+    parser.add_argument("--max_length", "--max_seq_length", type=int, default=1024, help="Maximum sequence length")
+    parser.add_argument("--max_steps", type=int, default=None, help="Maximum training steps (useful for verification)")
     parser.add_argument("--lora_r", type=int, default=32, help="LoRA rank dimension (capacity)")
     parser.add_argument("--lora_alpha", type=int, default=64, help="LoRA alpha scaling parameter")
     parser.add_argument("--lora_dropout", type=float, default=0.10, help="LoRA dropout rate (regularization)")
@@ -230,7 +348,7 @@ def get_formatting_func(tokenizer):
         if "messages" in example:
             prompt = tokenizer.apply_chat_template(example["messages"], tokenize=False)
             return {"text": prompt}
-            
+
         instruction = example.get("instruction", "")
         input_text = example.get("input", "")
         output = example.get("output", "")
@@ -238,12 +356,21 @@ def get_formatting_func(tokenizer):
         return {"text": prompt}
     return format_prompt
 
+
 def main():
     logging.basicConfig(level=logging.INFO)
     args = parse_args()
 
-    logger.info(f"Loading tokenizer for {args.model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+    resolved_model_name = resolve_model_name(args.model_name)
+    logger.info(f"Resolved student model name: {resolved_model_name} (from input '{args.model_name}')")
+
+    drive_path = detect_google_drive_path(args.drive_path)
+    if drive_path:
+        drive_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Target Google Drive path configured: {drive_path}. Intermediate checkpoints and final weights will be stored directly to Google Drive.")
+
+    logger.info(f"Loading tokenizer for {resolved_model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(resolved_model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.pad_token_id = tokenizer.eos_token_id
 
@@ -263,7 +390,7 @@ def main():
     is_cuda = torch.cuda.is_available()
     use_bf16 = is_cuda and torch.cuda.is_bf16_supported()
     use_fp16 = is_cuda and not torch.cuda.is_bf16_supported()
-    
+
     if is_cuda:
         logger.info("Configuring 4-bit quantization")
         bnb_config = BitsAndBytesConfig(
@@ -274,7 +401,7 @@ def main():
         )
         logger.info("Loading base model with quantization")
         model = AutoModelForCausalLM.from_pretrained(
-            args.model_name,
+            resolved_model_name,
             quantization_config=bnb_config,
             device_map=device_map,
             trust_remote_code=True,
@@ -284,12 +411,12 @@ def main():
     else:
         logger.info("CUDA not available, loading model without quantization")
         model = AutoModelForCausalLM.from_pretrained(
-            args.model_name,
+            resolved_model_name,
             device_map=device_map,
             trust_remote_code=True,
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
         )
-        
+
     model.config.use_cache = False
 
     peft_config = LoraConfig(
@@ -314,34 +441,43 @@ def main():
     except Exception as exc:
         logger.warning(f"Could not initialize DataCollatorForCompletionOnlyLM: {exc}")
 
+    callbacks = []
+    if drive_path and GoogleDriveSyncCallback is not None:
+        callbacks.append(GoogleDriveSyncCallback(drive_path=drive_path, local_dir=Path(args.output_dir)))
+
     # Handle cross-version compatibility for TRL and Transformers
     try:
         from trl import SFTConfig
         sft_kwargs = {
             "output_dir": args.output_dir,
             "per_device_train_batch_size": args.batch_size,
-            "gradient_accumulation_steps": 4,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
             "learning_rate": args.learning_rate,
             "num_train_epochs": args.epochs,
             "weight_decay": args.weight_decay,
             "lr_scheduler_type": "cosine",
             "logging_steps": 10,
-            "save_strategy": "epoch",
-            "optim": "paged_adamw_32bit",
+            "save_strategy": args.save_strategy,
+            "save_steps": args.save_steps,
+            "save_total_limit": args.save_total_limit,
+            "optim": "paged_adamw_32bit" if is_cuda else "adamw_torch",
             "bf16": use_bf16,
             "fp16": use_fp16,
             "use_cpu": not is_cuda,
-            "gradient_checkpointing": True,
+            "gradient_checkpointing": is_cuda,
             "max_length": args.max_length,
             "dataset_text_field": "text",
             **get_warmup_kwargs(SFTConfig, 0.05),
         }
+        if args.max_steps is not None and args.max_steps > 0:
+            sft_kwargs["max_steps"] = args.max_steps
         training_args = SFTConfig(**filter_supported_kwargs(SFTConfig, sft_kwargs))
         trainer = SFTTrainer(
             model=model,
             train_dataset=dataset,
             eval_dataset=eval_dataset,
             data_collator=collator,
+            callbacks=callbacks,
             processing_class=tokenizer,
             args=training_args,
         )
@@ -349,26 +485,31 @@ def main():
         t_kwargs = {
             "output_dir": args.output_dir,
             "per_device_train_batch_size": args.batch_size,
-            "gradient_accumulation_steps": 4,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
             "learning_rate": args.learning_rate,
             "num_train_epochs": args.epochs,
             "weight_decay": args.weight_decay,
             "lr_scheduler_type": "cosine",
             "logging_steps": 10,
-            "save_strategy": "epoch",
-            "optim": "paged_adamw_32bit",
+            "save_strategy": args.save_strategy,
+            "save_steps": args.save_steps,
+            "save_total_limit": args.save_total_limit,
+            "optim": "paged_adamw_32bit" if is_cuda else "adamw_torch",
             "bf16": use_bf16,
             "fp16": use_fp16,
             "use_cpu": not is_cuda,
-            "gradient_checkpointing": True,
+            "gradient_checkpointing": is_cuda,
             **get_warmup_kwargs(TrainingArguments, 0.05),
         }
+        if args.max_steps is not None and args.max_steps > 0:
+            t_kwargs["max_steps"] = args.max_steps
         training_args = TrainingArguments(**filter_supported_kwargs(TrainingArguments, t_kwargs))
         trainer = SFTTrainer(
             model=model,
             train_dataset=dataset,
             eval_dataset=eval_dataset,
             data_collator=collator,
+            callbacks=callbacks,
             tokenizer=tokenizer,
             args=training_args,
             dataset_text_field="text",
@@ -377,9 +518,31 @@ def main():
     logger.info("Starting QLoRA fine-tuning")
     trainer.train()
 
-    logger.info(f"Saving final adapter to {args.output_dir}")
+    logger.info(f"Saving final adapter to local directory: {args.output_dir}")
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     trainer.model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
+
+    if drive_path:
+        logger.info(f"Saving final adapter weights directly to Google Drive: {drive_path}")
+        drive_path.mkdir(parents=True, exist_ok=True)
+        trainer.model.save_pretrained(str(drive_path))
+        tokenizer.save_pretrained(str(drive_path))
+        logger.info(f"Final adapter and tokenizer successfully persisted to Google Drive: {drive_path}")
+
+    # Register student adapter provenance manifest for evaluation readiness
+    try:
+        from scripts.check_eval_readiness import register_adapter_manifest, load_yaml
+        config_p = Path("configs/experiments/session08.yaml")
+        if config_p.exists():
+            cfg = load_yaml(config_p)
+            manifest_file = register_adapter_manifest(config=cfg, root=Path("."))
+            logger.info(f"Registered student adapter provenance manifest: {manifest_file}")
+            if drive_path and manifest_file.exists():
+                shutil.copy2(manifest_file, drive_path / "training_manifest.json")
+    except Exception as exc:
+        logger.warning(f"Could not automatically register adapter manifest: {exc}")
+
     logger.info("Training complete.")
 
 if __name__ == "__main__":
