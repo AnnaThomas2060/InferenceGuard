@@ -31,6 +31,21 @@ python -m spacy download en_core_web_lg
 
 InferenceGuard is now fully modularized into a robust Python architecture. You can run the entire pipeline—from dataset generation to fine-tuning and launching the live UI—directly from the **`InferenceGuard_finetune.ipynb`** Colab notebook.
 
+### 0. Get the dataset
+
+SynthPAI is CC-BY-NC-SA-4.0 and is **not** committed to this repository, so a
+fresh clone has to fetch it before anything below will run:
+
+```bash
+python scripts/prepare_data.py
+```
+
+That downloads `RobinSta/SynthPAI` at the revision pinned in
+`configs/models.yaml` to `data/raw/synthpai.jsonl`, and re-running it is a
+no-op once the file is there. The pin matters: the profile-disjoint split is a
+function of dataset iteration order as well as the seed, so an unpinned
+download can change the split without anything failing (issue #21).
+
 ### 1. Fine-Tune ModernBERT
 To train the multi-task risk classifier on the SynthPAI dataset, use the module directly:
 ```bash
@@ -43,9 +58,10 @@ python -m src.risk_model.train \
 
 ### 2. Build the rewriter SFT set
 The profile-disjoint splits are committed under `data/splits/` and hashed in
-`data/manifests/split_manifest.json`. Nothing needs downloading first. If they
-are ever missing, `python -m src.data.splits` regenerates them from the pinned
-SynthPAI revision, and `python scripts/check_splits.py` checks them.
+`data/manifests/split_manifest.json`, so the splits themselves need no
+download — but the comment text they index does, via step 0 above. If the
+splits are ever missing, `python -m src.data.splits` regenerates them from the
+pinned SynthPAI revision, and `python scripts/check_splits.py` checks them.
 
 The SFT targets come from a local teacher LLM (Qwen3-4B, thinking off). Each
 rewrite is kept only if it passes a verbatim leak check against the author's

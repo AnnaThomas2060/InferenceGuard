@@ -626,7 +626,9 @@ def generate_sft_dataset(
     # Load source records
     synthpai_file = Path(synthpai_path)
     if not synthpai_file.exists():
-        raise FileNotFoundError(f"SynthPAI input file not found: {synthpai_path}")
+        from src.data.dataset_pin import missing_data_message
+
+        raise FileNotFoundError(missing_data_message(synthpai_path))
 
     raw_records: List[Dict[str, Any]] = []
     with open(synthpai_file, "r", encoding="utf-8") as f:

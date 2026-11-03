@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 import numpy as np
 
+from src.data.dataset_pin import DATASET_ID, pinned_revision
+
 
 def extract_profile_id(record: Dict[str, Any]) -> str:
     """Extract author profile ID from comment record across SynthPAI schema variations."""
@@ -195,7 +197,7 @@ def load_or_fetch_synthpai(local_path: Optional[Path] = None) -> List[Dict[str, 
     # 4. Hugging Face datasets library fetch
     try:
         from datasets import load_dataset
-        ds = load_dataset("RobinSta/SynthPAI")
+        ds = load_dataset(DATASET_ID, revision=pinned_revision())  # pinned; issue #21
         records = []
         for split_key in ds.keys():
             for row in ds[split_key]:

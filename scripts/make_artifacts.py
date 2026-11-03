@@ -17,6 +17,8 @@ import numpy as np
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 
+from src.data.dataset_pin import DATASET_ID, pinned_revision
+
 ARTIFACTS = Path(__file__).resolve().parent.parent / "artifacts"
 SEED = 42
 
@@ -38,7 +40,11 @@ def get_profile_id(ex):
 
 
 def main():
-    ds = load_dataset("RobinSta/SynthPAI")
+    # Pinned. An unpinned load takes whatever the hub serves today, and the
+    # split is a function of dataset iteration order as well as the seed --
+    # so the committed artifact would stop reproducing without anything
+    # failing. See issue #21.
+    ds = load_dataset(DATASET_ID, revision=pinned_revision())
 
     profile_to_examples = defaultdict(list)
     for split in ds.keys():
@@ -63,7 +69,17 @@ def main():
     assert tr | va | te == set(unique_profiles), "splits do not cover all profiles"
 
     ARTIFACTS.mkdir(exist_ok=True)
-    splits = {"train": train_p, "val": val_p, "test": test_p, "seed": SEED}
+    # The revision belongs in the artifact, not only in the config: the file
+    # has to say what it was built from, or a future reader cannot tell
+    # whether a regenerated split should match it.
+    splits = {
+        "train": train_p,
+        "val": val_p,
+        "test": test_p,
+        "seed": SEED,
+        "dataset_id": DATASET_ID,
+        "dataset_revision": pinned_revision(),
+    }
     with open(ARTIFACTS / "profile_splits.json", "w") as f:
         json.dump(splits, f, indent=2)
     with open(ARTIFACTS / "taxonomy.json", "w") as f:

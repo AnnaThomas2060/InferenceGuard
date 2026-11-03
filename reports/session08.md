@@ -98,11 +98,36 @@ In Session 07, preliminary CPU generation latency was benchmarked on base weight
 Following the methodology review (`docs/methodology-review.md`) and PR #69 teacher distillation (`src/rewriter/teacher_sft.py`),
 the rewriter stack is grounded in the verified `Qwen2.5` family (`configs/models.yaml`):
 
-| Role | Model Identifier | Parameters | Target Hardware | Latency Profile | Purpose |
-|---|---|---:|---|---|---|
-| **Teacher** | `Qwen/Qwen2.5-7B-Instruct` | 7.61B | Offline / GPU | N/A (Offline) | Distilled 1,749-row SFT dataset with 6-gate validation (`data/sft/teacher_v1/`) |
-| **Student (Local)** | `Qwen/Qwen2.5-0.5B-Instruct` | 494M | Laptop CPU | ~1.5 s p50 CPU, 1.0 GB RAM | Honest on-device local-first target matching Session 07 SLA |
-| **Student (Ceiling)** | `Qwen/Qwen2.5-1.5B-Instruct` | 1.54B | GPU / 4-bit | ~3.5–5.0 s CPU, 3.1 GB RAM | Quality ceiling baseline (`DEFAULT_BASE_MODEL` in `src/rewriter/inference.py`) |
+| Role | Model Identifier | Parameters | Target Hardware | Latency | Basis | Purpose |
+|---|---|---:|---|---|---|---|
+| **Teacher** | `Qwen/Qwen2.5-7B-Instruct` | 7.61B | Offline / GPU | n/a | — | Distilled 1,749-row SFT dataset with 6-gate validation (`data/sft/teacher_v1/`) |
+| **Student (Local)** | `Qwen/Qwen2.5-0.5B-Instruct` | 494M | Laptop CPU | ~1.5 s p50, ~1.0 GB | **estimated** | On-device local-first target |
+| **Student (Ceiling)** | `Qwen/Qwen2.5-1.5B-Instruct` | 1.54B | GPU / 4-bit | ~3.5–5.0 s, ~3.1 GB | **estimated** | Quality ceiling (`DEFAULT_BASE_MODEL`) |
+
+**Only one row of this table has been measured, and it is not in the table.**
+The sole latency artifact we hold is for `Qwen3-0.6B`, from Session 07:
+1,561 ms rewrite p50, 3,571 ms p95, 4,226 MB peak RSS, n=60, Apple M4 Pro CPU
+(`artifacts/latency/cpu-apple-m4-pro_2026-10-17_qwen3-0.6b.json`). The 0.5B and
+1.5B figures above are extrapolations with no artifact behind them, and the
+`Basis` column now says so rather than letting them sit beside a real number
+in the same visual register.
+
+Two reasons to treat the estimates sceptically rather than merely as
+provisional:
+
+- **The 0.5B memory estimate contradicts our only measurement.** A 0.6B model
+  measured at 4,226 MB peak RSS. The ~1.0 GB attributed to the 0.5B student is
+  close to the *heuristic* path's measured 1,022 MB — the configuration that
+  loads no language model at all. A model roughly the same size as the one we
+  measured is unlikely to need a quarter of its memory.
+- **Nothing has been measured on the model we actually ship.** The registered
+  adapter is `Qwen2.5-0.5B-Instruct`; the measured artifact is `Qwen3-0.6B`
+  base weights with no adapter loaded. Different family, different tokenizer,
+  no adapter — the artifact's own config records that caveat.
+
+Re-running `scripts/benchmark_latency.py` against the registered adapter is
+roughly an hour and would replace all three rows with measurements. Until
+then the local-first latency claim rests on one number from a different model.
 
 ### Risk Classifier
 
@@ -114,6 +139,13 @@ inputs score `0.95`.
 
 Cryptographic SHA-256 manifests (`data/manifests/split_manifest.json`) lock 210 train profiles (5,232 comments),
 45 val profiles (1,416 comments), and 45 test profiles (1,175 comments) with zero profile contamination (`src/data/splits.py`, `tests/test_splits.py`).
+
+The same split is recorded twice, by two code paths — `data/manifests/split_manifest.json`
+and `artifacts/profile_splits.json`. They currently agree profile-for-profile, and
+`tests/test_dataset_pin.py` now asserts that they continue to, so "the test split"
+keeps a single meaning. Both are built from SynthPAI at the revision pinned in
+`configs/models.yaml`; before this session neither download site passed a revision at
+all, so the seed alone did not make the split reproducible (issue #21).
 
 ## What did not work
 
