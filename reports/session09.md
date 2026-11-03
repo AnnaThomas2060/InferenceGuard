@@ -51,7 +51,7 @@ north_star:
 
 ## User evidence
 
-- **No user studies were conducted by Data&Eval this week.** The most recent user session remains the Session 08 terminology comprehension study (Participant P01, Scenario S02, documented in `docs/userstudy/session08_record.json` and `artifacts/session08-doc.md`).
+- One user test was conducted to test new UI design (Participant P01, Scenario S03, documented in `docs/userstudy/session09_record.json` and `artifacts/session09-doc.md`).
 - Focus this cycle was entirely directed at core ML generalization, dataset curation, position-balanced augmentation, DPO engine construction, and evaluation benchmark hardening.
 
 ## Metrics snapshot
@@ -154,6 +154,22 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
 
 - **Student base model mismatch in experiment config.** `scripts/check_eval_readiness.py` currently flags a blocking mismatch because `configs/experiments/session08.yaml` expects `Qwen/Qwen2.5-1.5B-Instruct` as the active base model, while our active trained student adapter in `artifacts/rewriter_qlora` is `Qwen/Qwen2.5-0.5B-Instruct`.
 
+-  **New UI design remains not straight-forward to users**.
+
+| Interface Item | Reported Understanding |
+|---|---|
+| UNDERSTAND YOUR EXPOSURE | Fully understandable | 
+| REVIEW YOUR WORDS | Fully understandable | 
+| Consistent identity aliases | Not fully understood |
+| Basic personal-information masking | Not fully understood |
+| Remaining privacy capacity | Not fully understood |
+| Added risk from this message | Not fully understood |
+| Fallback evaluation explanation | Not fully understood |
+| Text similarity | Not fully understood |
+| Support for rewritten content | Not fully understood |
+| Retention of original details | Reported as understandable |
+| Overall meaning-preservation score | Not fully understood |
+
 ## Challenges / blockers
 
 - **Base model alignment for formal held-out evaluation.** `configs/experiments/session08.yaml` requires `Qwen2.5-1.5B-Instruct`, whereas our on-device student adapter was fine-tuned on `Qwen2.5-0.5B-Instruct`. We must either update the experiment contract to evaluate the 0.5B adapter or train the 1.5B model on GPU before the held-out adversary can execute without provenance errors.
@@ -163,6 +179,7 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
 
 - Reconcile the evaluation experiment config with the registered `Qwen2.5-0.5B-Instruct` adapter (or train and register the 1.5B student), pass all readiness checks in `scripts/check_eval_readiness.py`, and run the held-out Phi-4 adversary across `data/splits/test.jsonl`.
 - Train the DPO student on `data/dpo/train_dpo.jsonl` using `src/rewriter/train_dpo.py` and benchmark preference alignment win rates against the SFT baseline.
+- Redesign UI interface, making it more simple, understandable to non-CS users. 
 
 ## Individual contributions
 
@@ -204,7 +221,10 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
     Fine-tuned and registered `Qwen2.5-0.5B-Instruct` student adapter weights with SHA-256 manifests (`artifacts/rewriter_qlora/training_manifest.json`), unblocking adapter provenance checks. Replaced naive 5-string checks with a 53-case span-annotated benchmark measuring span removal rate, statutory/clinical invariant preservation, and copy-through. Updated `web/api.py` with dynamic student adapter discovery and unscrubbed PII echo guards.
 
 - **Yiwei Jin (Users&Research):**
-  - [To be filled by Yiwei]
+  - **User-Centered UI Redesign (PR #75) (`web/index.html`, `web/style.css`, `web/app.js`):**  Redesigned the evaluation interface based on Session 08 feedback. Reorganized results into **original-message exposure → text comparison → protection outcome → detailed evaluation**. Replaced the default four-column comparison with two columns and expandable alternative methods. Added plain-language verdict summaries, before-and-after risk scores, and clearer metric explanations. Removed the misleading `bits` unit and distinguished actual evaluation backends from assumed model availability. Added **copy, edit, and recheck actions**, warnings for unevaluated edits, stale-result detection, connection checks, inline errors, and responsive layouts. Preserved the analysis-record export format. Completed syntax and simulated interaction checks covering verdicts, editing, stale results, exports, and network failures.
+
+  - **Session 09 Usability Testing, Documentation and Analysis (PR #85)(`session09-doc.md`, `session09_record.json`, `01.json`):**  
+  Evaluated the revised interface with one participant, who described it as **“clearer than last time,”** rated usefulness **9**, and accepted the output. Comprehension remained partial; **Retention of original details** was the only reviewed detailed item reported as understandable. Documented the findings and proposed concrete questions and examples for the next iteration. Identified a mismatch between favorable scores and actual output: estimated risk fell from **0.45 to 0.05**, with utility **0.9553**, yet the rewrite retained the locality and changed **“clinic” to “company.”** Recommended clearer communication of remaining personal information and possible meaning changes rather than relying on scores alone.
 
 - **Bingqi Lian (Operations):**
   - [To be filled by Bingqi]
