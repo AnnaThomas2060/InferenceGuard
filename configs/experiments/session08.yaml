@@ -36,9 +36,24 @@ training_provenance:
   require_teacher_revision: true
 
 student_provenance:
-  active_base_model: Qwen/Qwen2.5-1.5B-Instruct
-  adapter_dir: artifacts/rewriter_qlora
-  adapter_manifest_file: artifacts/rewriter_qlora/training_manifest.json
+  # Explicitly identify which student this held-out evaluation is about.
+  # The local-first 0.5B student is the current evaluation target.
+  # The 1.5B student remains the quality-ceiling target for later comparison.
+  evaluation_target: local_student
+
+  targets:
+    local_student:
+      role: local_first
+      base_model: Qwen/Qwen2.5-0.5B-Instruct
+      adapter_dir: artifacts/rewriter_qlora
+      adapter_manifest_file: artifacts/rewriter_qlora/training_manifest.json
+
+    quality_ceiling:
+      role: quality_ceiling
+      base_model: Qwen/Qwen2.5-1.5B-Instruct
+      adapter_dir: artifacts/rewriter_qlora_1p5b
+      adapter_manifest_file: artifacts/rewriter_qlora_1p5b/training_manifest.json
+
   require_adapter_manifest: true
   require_base_model_match: true
   require_training_dataset_hash_match: true
@@ -101,6 +116,7 @@ metrics:
     - split_name
     - split_manifest_sha256
     - git_commit_sha
+    - evaluation_target_id
     - student_base_model_id
     - student_adapter_manifest_sha256
     - training_dataset_sha256

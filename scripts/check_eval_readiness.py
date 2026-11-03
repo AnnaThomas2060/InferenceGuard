@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -16,7 +17,7 @@ try:
 except ModuleNotFoundError:
     from validate_experiment import validate_config
 
-READINESS_SCHEMA = "session08_eval_readiness_v1"
+READINESS_SCHEMA = "session09_eval_readiness_v2"
 ADAPTER_MANIFEST_SCHEMA = "session08_student_adapter_v1"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -59,6 +60,208 @@ def block(check: Dict[str, Any], message: str) -> None:
 
 def warn(check: Dict[str, Any], message: str) -> None:
     check["warnings"].append(message)
+
+
+
+
+def resolve_evaluation_target(
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Resolve which student artifact this held-out evaluation is about.
+
+    Session 09 configs use:
+        student_provenance.evaluation_target
+        student_provenance.targets.<target>
+
+    Legacy Session 08 configs remain supported.
+    """
+    student = config.get(
+        "student_provenance",
+        {},
+    )
+
+    if not isinstance(student, dict):
+        raise ValueError(
+            "student_provenance section is missing."
+        )
+
+    targets = student.get("targets")
+    target_id = student.get(
+        "evaluation_target"
+    )
+
+    if (
+        targets is not None
+        or target_id is not None
+    ):
+        if not isinstance(targets, dict):
+            raise ValueError(
+                "student_provenance.targets must be a mapping."
+            )
+
+        if (
+            not isinstance(target_id, str)
+            or not target_id
+        ):
+            raise ValueError(
+                "student_provenance.evaluation_target is required."
+            )
+
+        target = targets.get(target_id)
+
+        if not isinstance(target, dict):
+            raise ValueError(
+                f"Unknown evaluation target: {target_id!r}."
+            )
+
+        for field in (
+            "base_model",
+            "adapter_dir",
+            "adapter_manifest_file",
+        ):
+            value = target.get(field)
+
+            if (
+                not isinstance(value, str)
+                or not value
+            ):
+                raise ValueError(
+                    f"Evaluation target {target_id!r} "
+                    f"is missing {field!r}."
+                )
+
+        return {
+            "target_id": target_id,
+            "role": target.get("role"),
+            "base_model":
+                target["base_model"],
+            "adapter_dir":
+                target["adapter_dir"],
+            "adapter_manifest_file":
+                target[
+                    "adapter_manifest_file"
+                ],
+        }
+
+    # Backward-compatible Session 08 contract.
+    for field in (
+        "active_base_model",
+        "adapter_dir",
+        "adapter_manifest_file",
+    ):
+        value = student.get(field)
+
+        if (
+            not isinstance(value, str)
+            or not value
+        ):
+            raise ValueError(
+                f"student_provenance missing {field!r}."
+            )
+
+    return {
+        "target_id": "legacy_active",
+        "role": "legacy",
+        "base_model":
+            student["active_base_model"],
+        "adapter_dir":
+            student["adapter_dir"],
+        "adapter_manifest_file":
+            student[
+                "adapter_manifest_file"
+            ],
+    }
+
+
+def _effective_config_for_target(
+    config: Dict[str, Any],
+):
+    """
+    Translate the explicit Session 09 target contract into the
+    legacy fields consumed by the existing checker.
+
+    The original checker therefore remains the source of truth for
+    all existing provenance and hash validation.
+    """
+    effective = copy.deepcopy(config)
+
+    try:
+        target = resolve_evaluation_target(
+            effective
+        )
+
+    except ValueError as exc:
+        # Keep the legacy checker runnable so it can still validate
+        # the rest of the experiment contract.
+        fallback_model = (
+            effective.get(
+                "rewriter",
+                {},
+            ).get(
+                "name",
+                "__invalid_target__",
+            )
+        )
+
+        student = effective.setdefault(
+            "student_provenance",
+            {},
+        )
+
+        student.setdefault(
+            "active_base_model",
+            fallback_model,
+        )
+
+        student.setdefault(
+            "adapter_dir",
+            "__invalid_target__",
+        )
+
+        student.setdefault(
+            "adapter_manifest_file",
+            "__invalid_target__/"
+            "training_manifest.json",
+        )
+
+        return (
+            effective,
+            None,
+            str(exc),
+        )
+
+    student = effective[
+        "student_provenance"
+    ]
+
+    student["active_base_model"] = (
+        target["base_model"]
+    )
+
+    student["adapter_dir"] = (
+        target["adapter_dir"]
+    )
+
+    student[
+        "adapter_manifest_file"
+    ] = target[
+        "adapter_manifest_file"
+    ]
+
+    # The legacy checker used rewriter.name as the active evaluation
+    # student. In the effective validation copy, point it at the
+    # explicitly selected target. The source config remains unchanged.
+    effective.setdefault(
+        "rewriter",
+        {},
+    )["name"] = target["base_model"]
+
+    return (
+        effective,
+        target,
+        None,
+    )
 
 
 def validate_new_contract(config: Dict[str, Any], check: Dict[str, Any]) -> None:
@@ -135,7 +338,7 @@ def _git_snapshot(root: Path) -> Dict[str, Any]:
     }
 
 
-def register_adapter_manifest(
+def _register_adapter_manifest_legacy(
     config: Dict[str, Any],
     root: Path = Path("."),
     git_commit_sha: Optional[str] = None,
@@ -362,7 +565,35 @@ def register_adapter_manifest(
 
     return manifest_path
 
-def check_readiness(config: Dict[str, Any], root: Path = Path(".")) -> Dict[str, Any]:
+
+
+def register_adapter_manifest(
+    config: Dict[str, Any],
+    root: Path = Path("."),
+    git_commit_sha: Optional[str] = None,
+) -> Path:
+    """Register the adapter selected by the evaluation-target contract."""
+    (
+        effective,
+        target,
+        target_error,
+    ) = _effective_config_for_target(
+        config
+    )
+
+    if target_error is not None:
+        raise ValueError(
+            target_error
+        )
+
+    return _register_adapter_manifest_legacy(
+        config=effective,
+        root=root,
+        git_commit_sha=git_commit_sha,
+    )
+
+
+def _check_readiness_legacy(config: Dict[str, Any], root: Path = Path(".")) -> Dict[str, Any]:
     root = root.resolve()
     checks = {
         "config_contract": new_check(),
@@ -560,6 +791,215 @@ def check_readiness(config: Dict[str, Any], root: Path = Path(".")) -> Dict[str,
         "blocking_reasons": reasons,
         "warnings": warnings,
     }
+
+
+
+
+def check_readiness(
+    config: Dict[str, Any],
+    root: Path = Path("."),
+) -> Dict[str, Any]:
+    """
+    Extend the existing readiness result with three explicit student
+    artifact stages:
+
+      evaluation_target
+      adapter_registration
+      artifact_availability
+
+    `student_adapter` is retained as a backward-compatible aggregate.
+    """
+    (
+        effective,
+        target,
+        target_error,
+    ) = _effective_config_for_target(
+        config
+    )
+
+    result = _check_readiness_legacy(
+        effective,
+        root=root,
+    )
+
+    evaluation_target = new_check()
+    adapter_registration = new_check()
+    artifact_availability = new_check()
+
+    legacy_student = result[
+        "checks"
+    ].get(
+        "student_adapter",
+        new_check(),
+    )
+
+    if target_error is not None:
+        block(
+            evaluation_target,
+            target_error,
+        )
+
+        block(
+            adapter_registration,
+            "Cannot validate adapter registration "
+            "without a valid evaluation target.",
+        )
+
+        block(
+            artifact_availability,
+            "Cannot validate artifact availability "
+            "without a valid evaluation target.",
+        )
+
+    else:
+        result[
+            "provenance"
+        ][
+            "evaluation_target_id"
+        ] = target[
+            "target_id"
+        ]
+
+        result[
+            "provenance"
+        ][
+            "evaluation_target_role"
+        ] = target.get(
+            "role"
+        )
+
+        result[
+            "provenance"
+        ][
+            "evaluation_target_base_model_id"
+        ] = target[
+            "base_model"
+        ]
+
+        # The original checker already performs all of the actual
+        # manifest/hash/file validation. We only classify its student
+        # blockers into clearer Session 09 stages.
+        availability_markers = (
+            "Student adapter directory not found",
+            "Registered adapter artifact is missing",
+            "Invalid SHA-256 in adapter manifest",
+            "Adapter artifact hash mismatch",
+        )
+
+        for reason in legacy_student.get(
+            "blocking_reasons",
+            [],
+        ):
+            if reason.startswith(
+                availability_markers
+            ):
+                if reason.startswith(
+                    "Registered adapter artifact is missing:"
+                ):
+                    reason = reason.replace(
+                        "Registered adapter artifact is missing:",
+                        "Registered adapter artifact is unavailable:",
+                        1,
+                    )
+
+                block(
+                    artifact_availability,
+                    reason,
+                )
+
+            else:
+                block(
+                    adapter_registration,
+                    reason,
+                )
+
+    # Keep old student_adapter for downstream compatibility, but make
+    # it an aggregate instead of the only explanation.
+    student_adapter = new_check()
+
+    if any(
+        check["status"] == "BLOCKED"
+        for check in (
+            evaluation_target,
+            adapter_registration,
+            artifact_availability,
+        )
+    ):
+        student_adapter[
+            "status"
+        ] = "BLOCKED"
+
+    old_checks = result["checks"]
+
+    result["checks"] = {
+        "config_contract":
+            old_checks["config_contract"],
+
+        "training_dataset":
+            old_checks["training_dataset"],
+
+        "evaluation_target":
+            evaluation_target,
+
+        "adapter_registration":
+            adapter_registration,
+
+        "artifact_availability":
+            artifact_availability,
+
+        "student_adapter":
+            student_adapter,
+
+        "test_split":
+            old_checks["test_split"],
+
+        "attacker_configuration":
+            old_checks[
+                "attacker_configuration"
+            ],
+
+        "utility_configuration":
+            old_checks[
+                "utility_configuration"
+            ],
+    }
+
+    # Rebuild blocking reasons so the aggregate student_adapter does
+    # not duplicate the component-level explanations.
+    blocking_reasons: List[str] = []
+
+    for name, check in result[
+        "checks"
+    ].items():
+
+        if name == "student_adapter":
+            continue
+
+        for reason in check.get(
+            "blocking_reasons",
+            [],
+        ):
+            blocking_reasons.append(
+                f"{name}: {reason}"
+            )
+
+    result[
+        "blocking_reasons"
+    ] = blocking_reasons
+
+    result[
+        "overall_status"
+    ] = (
+        "READY"
+        if not blocking_reasons
+        else "BLOCKED"
+    )
+
+    result[
+        "schema_version"
+    ] = READINESS_SCHEMA
+
+    return result
 
 
 def print_readiness(r: Dict[str, Any]) -> None:

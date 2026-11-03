@@ -27,9 +27,11 @@ north_star:
     Overhauled rewriter generalization stack across dataset generation, acceptance gating, and preference optimization.
     Diagnosed and resolved 6 systemic root causes of memorization and position bias. Synthesized 2,000 position-controlled
     augmented training rows (0 target leaks, 0 prompt parity violations) and 1,933 DPO preference pairs. Registered
-    Qwen2.5-0.5B student adapter (artifacts/rewriter_qlora/training_manifest.json). Span-annotated benchmark (53 cases)
-    scores 53/53 on the heuristic fallback baseline (Wilson 95% CI 93.2-100%); the trained
-    adapter has not been scored against it.
+    provenance metadata for the Qwen2.5-0.5B local student (`artifacts/rewriter_qlora/training_manifest.json`) and made it
+    the explicit held-out evaluation target. Registration provenance passes, while formal held-out evaluation remains
+    blocked because several registered adapter artifacts are not available in the current repository/runtime.
+    The span-annotated benchmark (53 cases) scores 53/53 on the heuristic fallback baseline
+    (Wilson 95% CI 93.2-100%); the trained adapter has not been scored against it.
   previous: >-
     Session 08: Pipeline contracts verified; student adapter missing, blocking formal held-out evaluation readiness;
     terminology tooltips tested on P01.
@@ -47,7 +49,12 @@ north_star:
   Constructed a DPO alignment pipeline synthesizing 1,933 preference pairs explicitly penalizing known student failure modes: syntax placeholder degeneracy (e.g. `[AGE]: ...`), partial persona leaks, hallucinated filler, and downstream question truncation. Built a cross-version DPO training harness with dynamic `DPOConfig`/`TrainingArguments` dispatch and reference adapter support.
 
 - **Student QLoRA Registration & Span-Annotated Benchmark Suite (`artifacts/rewriter_qlora/`, `scripts/evaluate_benchmark_50.py`, `data/evaluation/benchmark_test_50_annotated.jsonl`).**
-  Trained and registered the `Qwen2.5-0.5B-Instruct` student adapter with cryptographic SHA-256 manifests (`artifacts/rewriter_qlora/training_manifest.json`), achieving `PASS` on student adapter provenance. Replaced brittle 5-keyword checklist tests with a 53-case span-annotated benchmark measuring span removal rate, statutory/clinical invariant preservation, copy-through, and compound request integrity (53/53 passed on fallback baseline).
+  Registered `Qwen2.5-0.5B-Instruct` student metadata with cryptographic SHA-256 provenance (`artifacts/rewriter_qlora/training_manifest.json`). The registration metadata is internally consistent, although several registered adapter files are not available in the current repository/runtime. Replaced brittle 5-keyword checklist tests with a 53-case span-annotated benchmark measuring span removal rate, statutory/clinical invariant preservation, copy-through, and compound request integrity (53/53 passed on fallback baseline).
+
+
+- **Explicit Evaluation Target & Artifact-Availability Readiness Gate (`configs/experiments/session08.yaml`, `scripts/check_eval_readiness.py`, `tests/test_session09_evaluation_targets.py`).**
+  Extended the held-out evaluation contract so the experiment explicitly identifies which student a headline result refers to. The current target is now the local-first `Qwen2.5-0.5B-Instruct` student, while `Qwen2.5-1.5B-Instruct` remains a separate quality-ceiling target. Split the previous monolithic student-adapter readiness check into evaluation-target validity, adapter-registration provenance, and runtime artifact availability. On the current tree, the evaluation target and registration checks pass, while artifact availability correctly remains `BLOCKED` because several hash-registered adapter files are unavailable. Formal held-out evaluation therefore cannot be reported yet.
+
 
 ## User evidence
 
@@ -152,16 +159,16 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
 
 - **Naive keyword checklist evaluation (RC6).** The initial 50-example benchmark checked only 5 fixed strings ("Johns Hopkins", "Miami Beach", "450k", etc.). Test cases tc_09 and tc_18 completely leaked full demographic personas ("for an 18-year-old first-year pre-law undergraduate at NYU in Manhattan") but still passed. Replaced with `scripts/evaluate_benchmark_50.py` and span annotations (`data/evaluation/benchmark_test_50_annotated.jsonl`), scoring true span recall and invariant preservation.
 
-- **Student base model mismatch in experiment config.** `scripts/check_eval_readiness.py` currently flags a blocking mismatch because `configs/experiments/session08.yaml` expects `Qwen/Qwen2.5-1.5B-Instruct` as the active base model, while our active trained student adapter in `artifacts/rewriter_qlora` is `Qwen/Qwen2.5-0.5B-Instruct`.
+- **Ambiguous student target in the held-out experiment contract.** The Session 08 configuration used a single `active_base_model` field tied to `Qwen2.5-1.5B-Instruct`, while the registered student provenance referred to `Qwen2.5-0.5B-Instruct`. This made it unclear which student any eventual headline held-out result would describe. The Session 09 Operations update replaces that ambiguity with an explicit `evaluation_target` and separate local-student and quality-ceiling targets.
 
 ## Challenges / blockers
 
-- **Base model alignment for formal held-out evaluation.** `configs/experiments/session08.yaml` requires `Qwen2.5-1.5B-Instruct`, whereas our on-device student adapter was fine-tuned on `Qwen2.5-0.5B-Instruct`. We must either update the experiment contract to evaluate the 0.5B adapter or train the 1.5B model on GPU before the held-out adversary can execute without provenance errors.
+- **Registered adapter artifacts are not fully available in the current repository/runtime.** The experiment now explicitly targets the local-first `Qwen2.5-0.5B-Instruct` student, and its registration provenance passes. However, the registration manifest references adapter and tokenizer artifacts that are not present in the current checkout. The readiness gate therefore remains `BLOCKED` at artifact availability until those exact hash-registered files are made available and verified.
 - **Cross-environment training dependency management.** Modern TRL releases have restructured configuration hierarchies (`DPOConfig` inheriting from `TrainingArguments`). Required defensive dynamic argument resolution in `src/rewriter/train_dpo.py` to prevent import and argument mismatches across local and Colab environments.
 
 ## Next week's goal
 
-- Reconcile the evaluation experiment config with the registered `Qwen2.5-0.5B-Instruct` adapter (or train and register the 1.5B student), pass all readiness checks in `scripts/check_eval_readiness.py`, and run the held-out Phi-4 adversary across `data/splits/test.jsonl`.
+- Make the exact hash-registered `Qwen2.5-0.5B-Instruct` adapter artifacts available to the evaluation runtime, pass the remaining artifact-availability readiness check in `scripts/check_eval_readiness.py`, and only then run the held-out Phi-4 adversary across `data/splits/test.jsonl`.
 - Train the DPO student on `data/dpo/train_dpo.jsonl` using `src/rewriter/train_dpo.py` and benchmark preference alignment win rates against the SFT baseline.
 
 ## Individual contributions
@@ -207,7 +214,10 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
   - [To be filled by Yiwei]
 
 - **Bingqi Lian (Operations):**
-  - [To be filled by Bingqi]
+  - **Explicit evaluation-target contract:** Extended the held-out experiment configuration so reportable results identify the exact student being evaluated. Defined `Qwen2.5-0.5B-Instruct` as the current local-first evaluation target while retaining `Qwen2.5-1.5B-Instruct` as a distinct quality-ceiling target rather than conflating the two roles.
+  - **Registration vs. availability provenance:** Extended `scripts/check_eval_readiness.py` to distinguish evaluation-target validity, adapter-registration provenance, and runtime artifact availability. This prevents a provenance manifest from being interpreted as proof that the corresponding model artifacts are actually available for execution.
+  - **Fail-closed held-out readiness:** Regenerated `experiments/session08_heldout_eval_v1/readiness.json`. The current state now passes the evaluation-target and registration checks but remains `BLOCKED` on missing hash-registered adapter files, preventing formal Phi-4 held-out claims from being produced from an incomplete artifact chain.
+  - **Regression coverage:** Added four Session 09 evaluation-target tests while preserving all existing readiness and Operations contracts. Validation passed the targeted Session 09 tests, the existing readiness and Operations suites, and a repository regression of 503 passed / 22 skipped after excluding two pre-existing TRL-dependent collection files in the fresh Colab environment. The committed readiness artifact also matches a fresh checker run.
 
 ## Lean canvas changes (if any)
 
