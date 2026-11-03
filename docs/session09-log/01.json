@@ -1,0 +1,174 @@
+{
+  "session_id": "01",
+  "user_id": "P01",
+  "input_text": "I'm 58 years old. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in Didsbury. And during my  last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the clinic again.",
+  "exported_at": "2026-11-03T04:16:30.620Z",
+  "client_latency_seconds": 3.5675,
+  "response": {
+    "risk_summary": {
+      "overall": 0.45,
+      "overall_band": "MEDIUM",
+      "primary": "age",
+      "secondary": [
+        "occupation"
+      ],
+      "bands": {
+        "age": "MEDIUM",
+        "location": "LOW",
+        "occupation": "MEDIUM",
+        "education": "LOW"
+      },
+      "scores": {
+        "age": 0.45,
+        "location": 0.05,
+        "occupation": 0.45,
+        "education": 0.05
+      },
+      "cues": [
+        {
+          "span": "[age cue]",
+          "attribute": "age",
+          "importance": 0.45
+        },
+        {
+          "span": "[occupation cue]",
+          "attribute": "occupation",
+          "importance": 0.45
+        }
+      ],
+      "leakage_delta": 0.45
+    },
+    "rewritten_text": "I'm an adult. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in Didsbury. And during my last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the company again.",
+    "presidio_text": "I'm 58 years old. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in <LOCATION>. And during my  last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the clinic again.",
+    "utility_metrics": {
+      "cosine_similarity": 0.9703,
+      "nli_forward": 0.95,
+      "nli_backward": 0.9344,
+      "contradiction": 0,
+      "utility_score": 0.9553,
+      "degenerate": false,
+      "degenerate_reason": null,
+      "utility_backend": "fallback"
+    },
+    "turn_record": {
+      "turn_number": 1,
+      "session_id": "01",
+      "raw_text": "I'm 58 years old. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in Didsbury. And during my  last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the clinic again.",
+      "turn_scores": {
+        "age": 0.45,
+        "location": 0.05,
+        "occupation": 0.45,
+        "education": 0.05
+      },
+      "cumulative_scores": {
+        "age": 0.45,
+        "location": 0.05,
+        "occupation": 0.45,
+        "education": 0.05
+      },
+      "overall_turn_risk": 0.45,
+      "overall_cumulative_risk": 0.45,
+      "joint_entropy": 3,
+      "leakage_delta": 0.45,
+      "is_breached": false,
+      "risk_band": "MEDIUM",
+      "residual_anonymity_capacity": 3
+    },
+    "privacy_report": {
+      "explicit": {
+        "count": 1,
+        "hard_count": 0,
+        "by_type": {
+          "LOCATION": 1
+        },
+        "spans": [
+          {
+            "type": "LOCATION",
+            "start": 194,
+            "end": 202
+          }
+        ]
+      },
+      "inferential": {
+        "overall": 0.45,
+        "overall_band": "MEDIUM",
+        "primary": "age",
+        "secondary": [
+          "occupation"
+        ],
+        "bands": {
+          "age": "MEDIUM",
+          "location": "LOW",
+          "occupation": "MEDIUM",
+          "education": "LOW"
+        },
+        "scores": {
+          "age": 0.45,
+          "location": 0.05,
+          "occupation": 0.45,
+          "education": 0.05
+        },
+        "cues": [
+          {
+            "span": "[age cue]",
+            "attribute": "age",
+            "importance": 0.45
+          },
+          {
+            "span": "[occupation cue]",
+            "attribute": "occupation",
+            "importance": 0.45
+          }
+        ],
+        "leakage_delta": 0.45
+      }
+    },
+    "comparison": {
+      "verdict": "improved",
+      "inferential_before": 0.45,
+      "inferential_after": 0.05,
+      "inferential_delta": 0.4,
+      "per_attribute_delta": {
+        "age": 0.4,
+        "education": 0,
+        "location": 0,
+        "occupation": 0.4
+      },
+      "explicit_before": 1,
+      "explicit_after": 1,
+      "hard_pii_remaining": 0,
+      "utility": 0.9553,
+      "utility_floor": 0.7,
+      "notes": [],
+      "is_win": true
+    },
+    "verdict": "improved",
+    "is_win": true,
+    "rewrite_engine": "heuristic",
+    "rewrite_changed": true,
+    "served_text_sha256": "f6cc304a671ee5d0b33d9b8c91b01d4aed5e6c19b75256eab30f14ae1445ce68",
+    "timings_ms": {
+      "presidio": 0.344,
+      "risk_model": 832.778,
+      "rewrite": 393.22,
+      "rescore": 827.971,
+      "utility": 15.828,
+      "total": 2887.015
+    },
+    "debug_info": {
+      "timestamp": 1793679388.7813458,
+      "input_text": "I'm 58 years old. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in Didsbury. And during my  last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the clinic again.",
+      "qwen_adapter_loaded": false,
+      "qwen_output_raw": null,
+      "qwen_clean_output": null,
+      "qwen_error": null,
+      "qwen_is_fallback": false,
+      "qwen_changed": false,
+      "qwen_had_pii": false,
+      "candidates_evaluated": [],
+      "decision_reason": "Heuristic candidate satisfied strict Pareto thresholds.",
+      "selected_engine": "heuristic",
+      "selected_text": "I'm an adult. I started taking metformin about one month ago. I also take a statin that was prescribed earlier. The medications came from different prescribers. My regular GP practice is in Didsbury. And during my last appointment, my GP did not seem concerned about taking the medications together. I am not sure whether the different prescribers were both aware of your complete medication list. Can you tell me whether I should contact the company again."
+    }
+  }
+}

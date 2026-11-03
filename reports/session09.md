@@ -58,7 +58,7 @@ north_star:
 
 ## User evidence
 
-- **No user studies were conducted by Data&Eval this week.** The most recent user session remains the Session 08 terminology comprehension study (Participant P01, Scenario S02, documented in `docs/userstudy/session08_record.json` and `artifacts/session08-doc.md`).
+- One user test was conducted to test new UI design (Participant P01, Scenario S03, documented in `docs/userstudy/session09_record.json` and `artifacts/session09-doc.md`).
 - Focus this cycle was entirely directed at core ML generalization, dataset curation, position-balanced augmentation, DPO engine construction, and evaluation benchmark hardening.
 
 ## Metrics snapshot
@@ -161,6 +161,22 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
 
 - **Ambiguous student target in the held-out experiment contract.** The Session 08 configuration used a single `active_base_model` field tied to `Qwen2.5-1.5B-Instruct`, while the registered student provenance referred to `Qwen2.5-0.5B-Instruct`. This made it unclear which student any eventual headline held-out result would describe. The Session 09 Operations update replaces that ambiguity with an explicit `evaluation_target` and separate local-student and quality-ceiling targets.
 
+-  **New UI design remains not straight-forward to users**.
+
+| Interface Item | Reported Understanding |
+|---|---|
+| UNDERSTAND YOUR EXPOSURE | Fully understandable | 
+| REVIEW YOUR WORDS | Fully understandable | 
+| Consistent identity aliases | Not fully understood |
+| Basic personal-information masking | Not fully understood |
+| Remaining privacy capacity | Not fully understood |
+| Added risk from this message | Not fully understood |
+| Fallback evaluation explanation | Not fully understood |
+| Text similarity | Not fully understood |
+| Support for rewritten content | Not fully understood |
+| Retention of original details | Reported as understandable |
+| Overall meaning-preservation score | Not fully understood |
+
 ## Challenges / blockers
 
 - **Registered adapter artifacts are not fully available in the current repository/runtime.** The experiment now explicitly targets the local-first `Qwen2.5-0.5B-Instruct` student, and its registration provenance passes. However, the registration manifest references adapter and tokenizer artifacts that are not present in the current checkout. The readiness gate therefore remains `BLOCKED` at artifact availability until those exact hash-registered files are made available and verified.
@@ -170,6 +186,7 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
 
 - Make the exact hash-registered `Qwen2.5-0.5B-Instruct` adapter artifacts available to the evaluation runtime, pass the remaining artifact-availability readiness check in `scripts/check_eval_readiness.py`, and only then run the held-out Phi-4 adversary across `data/splits/test.jsonl`.
 - Train the DPO student on `data/dpo/train_dpo.jsonl` using `src/rewriter/train_dpo.py` and benchmark preference alignment win rates against the SFT baseline.
+- Redesign UI interface, making it more simple, understandable to non-CS users. 
 
 ## Individual contributions
 
@@ -211,7 +228,10 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
     Fine-tuned and registered `Qwen2.5-0.5B-Instruct` student adapter weights with SHA-256 manifests (`artifacts/rewriter_qlora/training_manifest.json`), unblocking adapter provenance checks. Replaced naive 5-string checks with a 53-case span-annotated benchmark measuring span removal rate, statutory/clinical invariant preservation, and copy-through. Updated `web/api.py` with dynamic student adapter discovery and unscrubbed PII echo guards.
 
 - **Yiwei Jin (Users&Research):**
-  - [To be filled by Yiwei]
+  - **User-Centered UI Redesign (PR #75) (`web/index.html`, `web/style.css`, `web/app.js`):**  Redesigned the evaluation interface based on Session 08 feedback. Reorganized results into **original-message exposure → text comparison → protection outcome → detailed evaluation**. Replaced the default four-column comparison with two columns and expandable alternative methods. Added plain-language verdict summaries, before-and-after risk scores, and clearer metric explanations. Removed the misleading `bits` unit and distinguished actual evaluation backends from assumed model availability. Added **copy, edit, and recheck actions**, warnings for unevaluated edits, stale-result detection, connection checks, inline errors, and responsive layouts. Preserved the analysis-record export format. Completed syntax and simulated interaction checks covering verdicts, editing, stale results, exports, and network failures.
+
+  - **Session 09 Usability Testing, Documentation and Analysis (PR #86)(`session09-doc.md`, `session09_record.json`, `01.json`):**  
+  Evaluated the revised interface with one participant, who described it as **“clearer than last time,”** rated usefulness **9**, and accepted the output. Comprehension remained partial; **Retention of original details** was the only reviewed detailed item reported as understandable. Documented the findings and proposed concrete questions and examples for the next iteration. Identified a mismatch between favorable scores and actual output: estimated risk fell from **0.45 to 0.05**, with utility **0.9553**, yet the rewrite retained the locality and changed **“clinic” to “company.”** Recommended clearer communication of remaining personal information and possible meaning changes rather than relying on scores alone.
 
 - **Bingqi Lian (Operations):**
   - **Explicit evaluation-target contract:** Extended the held-out experiment configuration so reportable results identify the exact student being evaluated. Defined `Qwen2.5-0.5B-Instruct` as the current local-first evaluation target while retaining `Qwen2.5-1.5B-Instruct` as a distinct quality-ceiling target rather than conflating the two roles.
