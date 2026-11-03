@@ -28,7 +28,8 @@ north_star:
     Diagnosed and resolved 6 systemic root causes of memorization and position bias. Synthesized 2,000 position-controlled
     augmented training rows (0 target leaks, 0 prompt parity violations) and 1,933 DPO preference pairs. Registered
     Qwen2.5-0.5B student adapter (artifacts/rewriter_qlora/training_manifest.json). Span-annotated benchmark (53 cases)
-    achieves 100% span removal and 100% invariant preservation on fallback baseline.
+    scores 53/53 on the heuristic fallback baseline (Wilson 95% CI 93.2-100%); the trained
+    adapter has not been scored against it.
   previous: >-
     Session 08: Pipeline contracts verified; student adapter missing, blocking formal held-out evaluation readiness;
     terminology tooltips tested on P01.
@@ -84,6 +85,29 @@ Generated via `src/rewriter/augment.py` and validated by `scripts/check_prompt_p
 - Age: 523 mentions
 - Occupation: 442 mentions
 - Income: 420 mentions
+
+### Span-Annotated Benchmark (53 cases)
+
+Reproduced on a clean checkout with `python scripts/evaluate_benchmark_50.py --fallback_baseline`:
+53/53 pass, mean span removal 1.0, mean invariant preservation 1.0, 0 copy-through.
+
+Three things that number is not, stated here so it is not read as more than it is:
+
+- **It is not 100% in the statistical sense.** 53/53 gives a Wilson 95% interval of
+  **93.2-100%**. On 53 cases we cannot distinguish a method that fails one time in
+  twenty from one that never fails.
+- **It is 100% *where measured*, not on both axes everywhere.** The per-category output
+  reports `removal=None` for `essential_jurisdiction_law` and `invariants=None` for
+  `embedded_compound_request`; those axes are not scored in those categories.
+- **It is the heuristic fallback, not the trained student.** The fallback path is
+  `prune_persona_bidirectional`, which removes leading and trailing persona clauses, and
+  the benchmark is predominantly preamble, postamble and hybrid cases
+  (10 + 10 + 10 of 53). That makes it a sound regression suite for the pruner. It is not
+  yet evidence of generalization, and `embedded_compound_request` -- the shape the
+  pruner does not target -- has 3 cases.
+
+Scoring the registered adapter against the same 53 cases is the cheapest way to turn
+this into a comparison rather than a baseline reading.
 
 ### Direct Preference Optimization (DPO) Dataset
 
@@ -146,7 +170,28 @@ Committed to `artifacts/rewriter_qlora/` and verified by `artifacts/rewriter_qlo
   - [To be filled by Chatur]
 
 - **Govind Arun (Product):**
-  - [To be filled by Govind]
+  - **Reviewed and merged the four-PR stack (#78-#81) and this report**, reproducing each
+    load-bearing claim on a clean checkout rather than accepting it from the description:
+    re-ran `check_prompt_parity.py` against the committed `train.jsonl` (attribute
+    coverage 758/577/535/523/442/420 and word counts 8/23/39 match this report exactly),
+    confirmed the committed SHA-256 `f68d22fb4327...` is the hash of the committed file,
+    and re-ran the 53-case benchmark to 53/53.
+  - **Found the committed readiness artifact contradicted its own checker.**
+    `experiments/session08_heldout_eval_v1/readiness.json` was committed as `READY` while
+    `scripts/check_eval_readiness.py` returns `BLOCKED` with six reasons on the same tree.
+    Regenerated it and added a guard test comparing the committed verdict against a fresh
+    run, so a stale verdict file fails CI instead of being cited.
+  - **Checked the span benchmark for circularity** -- whether the 53 cases were composed
+    from the persona banks the pruner scrubs, which would make 100% tautological. They are
+    hand-authored, so it is not. Added the interval and scope caveats above instead.
+  - **Closed #21 and #62** (PR #84): both SynthPAI download sites were unpinned, so the
+    seed alone never made the profile split reproducible; and a fresh clone failed at the
+    first step with no documented way to fetch the dataset. Added `scripts/prepare_data.py`
+    and six dependency-free guards, each verified by reintroducing the regression.
+  - **Test-suite hygiene** (PRs #66, #67): eighteen modules failed collection on a machine
+    without the model stack, so a real failure was indistinguishable from a missing import
+    -- 18 errors to 0. That surfaced a genuine failing test, fixed in #67: `splits.py` used
+    a Python 3.10 API while `pyproject.toml` declares `>=3.9`.
 
 - **Anna Thomas (Data&Eval):**
   - **Rewriter Generalization Diagnosis & Prompt Parity Architecture (`src/rewriter/prompting.py`, `scripts/check_prompt_parity.py`, `tests/test_rewriter_generalization_fix.py`):**

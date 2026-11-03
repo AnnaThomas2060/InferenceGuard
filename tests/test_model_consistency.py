@@ -234,3 +234,35 @@ def test_source_does_not_use_apis_newer_than_the_declared_python_floor():
                     f">={floor[0]}.{floor[1]} — use {alternative}"
                 )
     assert not offenders, "\n".join(offenders)
+
+
+# --- committed verdict artifacts must not go stale -----------------------
+
+def test_committed_readiness_artifact_matches_a_fresh_run():
+    """`readiness.json` shipped saying READY while its own checker said BLOCKED.
+
+    The checker was right; the committed snapshot predated the tree. A file
+    under experiments/ announcing READY is the kind of thing a reader trusts
+    without re-running — which is how the simulated benchmark in reports/ got
+    as far as it did. Compares the committed verdict against a fresh run.
+    """
+    import json
+    import subprocess
+
+    artifact = ROOT / "experiments" / "session08_heldout_eval_v1" / "readiness.json"
+    script = ROOT / "scripts" / "check_eval_readiness.py"
+    if not (artifact.exists() and script.exists()):
+        pytest.skip("readiness artifact or checker is not present")
+
+    committed = json.loads(artifact.read_text(encoding="utf-8"))["overall_status"]
+    before = artifact.read_bytes()
+    try:
+        subprocess.run([sys.executable, str(script)], cwd=ROOT, capture_output=True, text=True)
+        fresh = json.loads(artifact.read_text(encoding="utf-8"))["overall_status"]
+    finally:
+        artifact.write_bytes(before)  # the script rewrites in place; leave the tree as found
+
+    assert committed == fresh, (
+        f"committed readiness says {committed!r} but a fresh run says {fresh!r}. "
+        f"Re-run scripts/check_eval_readiness.py and commit the result."
+    )

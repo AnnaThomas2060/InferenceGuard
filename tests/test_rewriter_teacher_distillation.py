@@ -8,11 +8,16 @@ Verifies:
 
 from __future__ import annotations
 
+import pytest
+
+# train_sft imports torch at module scope; guard above the heavy imports
+# so this reports as skipped rather than failing collection. See tests/README.md.
+pytest.importorskip("torch", reason="needs optional torch; see tests/README.md")
+
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-import pytest
 
 from src.rewriter.prompting import is_personal_disclosure, prune_persona_bidirectional
 from src.rewriter.generate_training_data import (
