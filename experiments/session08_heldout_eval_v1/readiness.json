@@ -1,5 +1,5 @@
 {
-  "schema_version": "session08_eval_readiness_v1",
+  "schema_version": "session09_eval_readiness_v2",
   "overall_status": "BLOCKED",
   "checks": {
     "config_contract": {
@@ -14,16 +14,30 @@
         "Teacher manifest does not pin the NLI model revision; exact teacher-selection replay is incomplete"
       ]
     },
-    "student_adapter": {
+    "evaluation_target": {
+      "status": "PASS",
+      "blocking_reasons": [],
+      "warnings": []
+    },
+    "adapter_registration": {
+      "status": "PASS",
+      "blocking_reasons": [],
+      "warnings": []
+    },
+    "artifact_availability": {
       "status": "BLOCKED",
       "blocking_reasons": [
-        "Student adapter base model mismatch: 'Qwen/Qwen2.5-0.5B-Instruct' != 'Qwen/Qwen2.5-1.5B-Instruct'",
-        "Registered adapter artifact is missing: adapter_model.safetensors",
-        "Registered adapter artifact is missing: chat_template.jinja",
-        "Registered adapter artifact is missing: README.md",
-        "Registered adapter artifact is missing: tokenizer.json",
-        "Registered adapter artifact is missing: tokenizer_config.json"
+        "Registered adapter artifact is unavailable: adapter_model.safetensors",
+        "Registered adapter artifact is unavailable: chat_template.jinja",
+        "Registered adapter artifact is unavailable: README.md",
+        "Registered adapter artifact is unavailable: tokenizer.json",
+        "Registered adapter artifact is unavailable: tokenizer_config.json"
       ],
+      "warnings": []
+    },
+    "student_adapter": {
+      "status": "BLOCKED",
+      "blocking_reasons": [],
       "warnings": []
     },
     "test_split": {
@@ -53,15 +67,17 @@
     "test_split_sha256": "8874e24c20c52b999fc9fb707f96d770817b67decaa2522072af9955f2d1499d",
     "split_manifest_sha256": "c10437c15970c6cbee4f7800581c7d5214fd1bde85fd1feabadb6072f9c7d2bb",
     "attacker_model_id": "microsoft/Phi-4-mini-instruct",
-    "utility_nli_model_id": "cross-encoder/nli-deberta-v3-large"
+    "utility_nli_model_id": "cross-encoder/nli-deberta-v3-large",
+    "evaluation_target_id": "local_student",
+    "evaluation_target_role": "local_first",
+    "evaluation_target_base_model_id": "Qwen/Qwen2.5-0.5B-Instruct"
   },
   "blocking_reasons": [
-    "student_adapter: Student adapter base model mismatch: 'Qwen/Qwen2.5-0.5B-Instruct' != 'Qwen/Qwen2.5-1.5B-Instruct'",
-    "student_adapter: Registered adapter artifact is missing: adapter_model.safetensors",
-    "student_adapter: Registered adapter artifact is missing: chat_template.jinja",
-    "student_adapter: Registered adapter artifact is missing: README.md",
-    "student_adapter: Registered adapter artifact is missing: tokenizer.json",
-    "student_adapter: Registered adapter artifact is missing: tokenizer_config.json"
+    "artifact_availability: Registered adapter artifact is unavailable: adapter_model.safetensors",
+    "artifact_availability: Registered adapter artifact is unavailable: chat_template.jinja",
+    "artifact_availability: Registered adapter artifact is unavailable: README.md",
+    "artifact_availability: Registered adapter artifact is unavailable: tokenizer.json",
+    "artifact_availability: Registered adapter artifact is unavailable: tokenizer_config.json"
   ],
   "warnings": [
     "training_dataset: Teacher manifest does not pin the NLI model revision; exact teacher-selection replay is incomplete"
