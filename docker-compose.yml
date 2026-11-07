@@ -1,0 +1,31 @@
+# Docker Compose specification for InferenceGuard production deployment.
+# It provisions the FastAPI inference service with container health checks and volume mounts.
+# Environment variables can be overridden using a local env file.
+
+version: "3.8"
+
+services:
+  inference-guard-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: inference-guard-api:latest
+    container_name: inference_guard_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - RISK_MODEL_ID=${RISK_MODEL_ID:-roberta-base}
+      - DEVICE=${DEVICE:-cpu}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s

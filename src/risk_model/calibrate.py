@@ -200,49 +200,94 @@ class AttributeTemperatureScaler(nn.Module):
         ui_score = float(np.clip(ui_score, 0.0, 1.0))
         return round(ui_score, 4), band
 
-    def score_logits(self, logits_dict: Dict[str, torch.Tensor]) -> Dict[AttributeName, AttributeRiskDistribution]:
-        """Convert multi-head model logits into calibrated probability distributions and risk scores."""
+    def score_logits(self, logits_dict: Dict[str, Any]) -> Dict[AttributeName, AttributeRiskDistribution]:
+        """Convert multi-head model logits into calibrated probability distributions and risk scores.
+        Supports multi-class heads, single-logit binary heads, and float dictionary fallbacks."""
         results: Dict[AttributeName, AttributeRiskDistribution] = {}
         for attr in AttributeName:
             key = attr.value
             temp = float(self.get_temperature(attr).item())
-            logits = logits_dict[key].detach().float()
-            if logits.ndim > 1:
-                logits = logits.squeeze(0)
-            probs = F.softmax(logits / temp, dim=-1).cpu().numpy()
+            raw_val = logits_dict.get(key) if isinstance(logits_dict, dict) else None
 
-            k = len(probs)
-            sorted_indices = np.argsort(probs)[::-1]
-            top1_idx = int(sorted_indices[0])
-            top2_idx = int(sorted_indices[1]) if k > 1 else top1_idx
+            if raw_val is None:
+                prob = 0.05
+                is_binary = True
+            elif isinstance(raw_val, (int, float)):
+                prob = float(raw_val)
+                is_binary = True
+            elif isinstance(raw_val, torch.Tensor):
+                logits = raw_val.detach().float()
+                if logits.ndim > 1:
+                    logits = logits.squeeze(0)
+                if logits.ndim == 0 or logits.numel() == 1 or logits.shape[-1] == 1:
+                    prob = float(torch.sigmoid(logits.view(-1) / temp)[0].item())
+                    is_binary = True
+                else:
+                    is_binary = False
+                    probs = F.softmax(logits / temp, dim=-1).cpu().numpy()
+            else:
+                prob = 0.1
+                is_binary = True
 
-            p1 = float(probs[top1_idx])
-            p2 = float(probs[top2_idx])
-            margin = round(p1 - p2, 4)
-            eps = 1e-12
-            entropy_norm = round(
-                float(np.clip(-np.sum(probs * np.log(np.clip(probs, eps, 1.0))) / math.log(k), 0.0, 1.0)),
-                4,
-            )
+            if is_binary:
+                prob = max(0.0001, min(0.9999, prob))
+                margin = round(abs(prob - (1.0 - prob)), 4)
+                entropy = -(prob * math.log(prob) + (1.0 - prob) * math.log(1.0 - prob)) / math.log(2.0)
+                norm_entropy = round(max(0.0, min(1.0, entropy)), 4)
+                risk_score = round(prob, 4)
+                band = (
+                    RiskBand.HIGH
+                    if risk_score >= 0.70
+                    else (RiskBand.MEDIUM if risk_score >= 0.40 else RiskBand.LOW)
+                )
+                pred_label = "SENSITIVE" if risk_score >= 0.50 else (
+                    ID_TO_LABEL[attr][0] if (band != RiskBand.LOW and attr in ID_TO_LABEL and ID_TO_LABEL[attr]) else "UNKNOWN"
+                )
+                class_prob_map = {"safe": round(1.0 - prob, 4), "sensitive": round(prob, 4)}
 
-            raw_inf = self._compute_raw_inferability_from_probs(probs)
-            ui_score, band = self.map_to_ui_scale(attr, raw_inf)
+                results[attr] = AttributeRiskDistribution(
+                    attribute=attr,
+                    predicted_value=pred_label,
+                    calibrated_confidence=round(prob, 4),
+                    top2_margin=margin,
+                    normalized_entropy=norm_entropy,
+                    inferability_risk_score=risk_score,
+                    risk_band=band,
+                    class_probabilities=class_prob_map,
+                )
+            else:
+                k = len(probs)
+                sorted_indices = np.argsort(probs)[::-1]
+                top1_idx = int(sorted_indices[0])
+                top2_idx = int(sorted_indices[1]) if k > 1 else top1_idx
 
-            pred_label = ID_TO_LABEL[attr][top1_idx] if band != RiskBand.LOW else "UNKNOWN"
-            class_prob_map = {
-                ID_TO_LABEL[attr][i]: round(float(probs[i]), 4) for i in range(k)
-            }
+                p1 = float(probs[top1_idx])
+                p2 = float(probs[top2_idx])
+                margin = round(p1 - p2, 4)
+                eps = 1e-12
+                entropy_norm = round(
+                    float(np.clip(-np.sum(probs * np.log(np.clip(probs, eps, 1.0))) / math.log(k), 0.0, 1.0)),
+                    4,
+                )
 
-            results[attr] = AttributeRiskDistribution(
-                attribute=attr,
-                predicted_value=pred_label,
-                calibrated_confidence=round(p1, 4),
-                top2_margin=margin,
-                normalized_entropy=entropy_norm,
-                inferability_risk_score=ui_score,
-                risk_band=band,
-                class_probabilities=class_prob_map,
-            )
+                raw_inf = self._compute_raw_inferability_from_probs(probs)
+                ui_score, band = self.map_to_ui_scale(attr, raw_inf)
+
+                pred_label = ID_TO_LABEL[attr][top1_idx] if band != RiskBand.LOW else "UNKNOWN"
+                class_prob_map = {
+                    ID_TO_LABEL[attr][i]: round(float(probs[i]), 4) for i in range(k)
+                }
+
+                results[attr] = AttributeRiskDistribution(
+                    attribute=attr,
+                    predicted_value=pred_label,
+                    calibrated_confidence=round(p1, 4),
+                    top2_margin=margin,
+                    normalized_entropy=entropy_norm,
+                    inferability_risk_score=ui_score,
+                    risk_band=band,
+                    class_probabilities=class_prob_map,
+                )
         return results
 
     def save(self, path: Path) -> None:

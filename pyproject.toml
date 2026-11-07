@@ -1,14 +1,41 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "inference-guard"
-version = "0.7.0"
+version = "1.0.0"
 description = "Production privacy firewall neutralizing inferential leakage in LLMs"
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.1.0",
+    "transformers>=4.40.0",
+    "huggingface-hub>=0.23.0",
+    "safetensors>=0.4.3",
+    "peft>=0.10.0",
+    "accelerate>=0.29.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.7.0",
+    "httpx>=0.27.0",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+    "PyYAML>=6.0.1",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+inference-guard-api = "uvicorn src.api.app:app --host 0.0.0.0 --port 8000"
+host-roberta = "scripts.host_roberta_on_hf:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "web*"]
+include = ["src*", "web*", "scripts*", "hf_roberta_risk_model*"]

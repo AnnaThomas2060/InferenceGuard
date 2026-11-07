@@ -140,3 +140,40 @@ To verify all pipelines and integrations (including the Phi-4-mini adversarial e
 python tests/run_all_tests.py
 ```
 
+## Production Deployment & Containerization
+
+### Docker Build & Run
+InferenceGuard includes a multi-stage production Docker container with non-root execution and health probes:
+
+```bash
+docker build -t inference-guard-api:latest .
+docker run -d -p 8000:8000 --name inference_guard inference-guard-api:latest
+```
+
+### Docker Compose
+For single-node staging or local multi-container development:
+```bash
+docker compose up -d
+```
+
+Verify service liveness and readiness:
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/ready
+```
+
+See [docs/PRODUCTION_DEPLOYMENT.md](file:///c:/Users/annat/Downloads/Inference-Guard-main/docs/PRODUCTION_DEPLOYMENT.md) for full deployment documentation.
+
+## Hugging Face Hub Hosting (RoBERTa Risk Model)
+Package and publish the RoBERTa multi-task risk classifier directly to the Hugging Face Hub:
+
+```bash
+python scripts/host_roberta_on_hf.py \
+    --repo-id "your-org/inferenceguard-roberta-risk" \
+    --base-model "roberta-base"
+```
+
+Or deploy using the standalone `hf_roberta_risk_model/` module with remote code execution.
+See [docs/HUGGINGFACE_ROBERTA_HOSTING.md](file:///c:/Users/annat/Downloads/Inference-Guard-main/docs/HUGGINGFACE_ROBERTA_HOSTING.md) for detailed instructions.
+
+

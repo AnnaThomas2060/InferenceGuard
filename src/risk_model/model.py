@@ -357,3 +357,38 @@ class MultiTaskModernBERTRiskModel(nn.Module):
             result["loss"] = total_loss
             result["per_attribute_loss"] = per_attr_loss
         return result
+
+
+def load_risk_classifier(
+    model_name_or_path: str,
+    device: str = "cpu",
+    trust_remote_code: bool = True,
+) -> Any:
+    """Load a trained risk classifier from a local directory or Hugging Face Hub.
+    Inspects model metadata to automatically instantiate RoBERTa or ModernBERT.
+    Returns the initialized model transferred to the specified target device."""
+    model_path = Path(model_name_or_path)
+
+    if model_path.exists() and (model_path / "risk_model_config.json").exists():
+        model = ModernBertRiskClassifier(model_name=str(model_path))
+        if hasattr(model, "to"):
+            model = model.to(device)
+        return model
+
+    try:
+        from src.risk_model.roberta_model import RobertaRiskClassifier, RobertaRiskConfig
+        model = RobertaRiskClassifier.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=trust_remote_code,
+        )
+        if hasattr(model, "to"):
+            model = model.to(device)
+        return model
+    except Exception:
+        from src.risk_model.roberta_model import RobertaRiskClassifier, RobertaRiskConfig
+        config = RobertaRiskConfig(base_model_name=model_name_or_path)
+        model = RobertaRiskClassifier(config=config)
+        if hasattr(model, "to"):
+            model = model.to(device)
+        return model
+

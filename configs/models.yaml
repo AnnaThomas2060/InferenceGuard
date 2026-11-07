@@ -38,6 +38,14 @@ hardware:
     Session 04 report.
 
 risk_estimator:
+  roberta_hub:
+    repo_id: GIND123/InferenceGuard-Roberta-Risk
+    base_model: roberta-base
+    params: 125_000_000
+    vram_fp16_gb: 0.25
+    context: 512
+    verified: encoder, RobertaForMaskedLM, vocab 50265
+    why: High-throughput standard architecture easily deployable across CPU and GPU runtimes.
   chosen: answerdotai/ModernBERT-base
   params: 149_607_936
   vram_fp16_gb: 0.30
