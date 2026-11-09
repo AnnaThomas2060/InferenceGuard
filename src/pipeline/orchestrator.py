@@ -53,7 +53,7 @@ class InferenceGuardPipeline:
     @classmethod
     def from_pretrained(
         cls,
-        risk_model_id: str = "roberta-base",
+        risk_model_id: Optional[str] = None,
         rewriter_model_id: Optional[str] = None,
         device: str = "cpu",
         load_rewriter_weights: bool = False,
@@ -61,8 +61,9 @@ class InferenceGuardPipeline:
         """Instantiate a production pipeline loading models directly from Hugging Face Hub."""
         from src.risk_model.predict import CalibratedRiskPredictor
 
+        risk_id = risk_model_id or os.getenv("RISK_MODEL_ID", "AT707/InferenceGuard-Roberta-Risk")
         rewriter_id = rewriter_model_id or os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1")
-        predictor = CalibratedRiskPredictor.from_pretrained(risk_model_id, device=device)
+        predictor = CalibratedRiskPredictor.from_pretrained(risk_id, device=device)
         return cls(
             pseudonym_manager=DeterministicPseudonymManager(),
             risk_estimator=predictor,

@@ -44,8 +44,30 @@ def check_hf_rewriter_metadata(repo_id: str = "AT707/inferenceguard-rewriter-v1"
         return False
 
 
+def check_hf_risk_model_metadata(repo_id: str = "AT707/InferenceGuard-Roberta-Risk") -> bool:
+    """Inspect the Hugging Face repository metadata for the RoBERTa risk model."""
+    logger.info("Checking repository metadata for '%s'...", repo_id)
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        info = api.model_info(repo_id)
+        logger.info("Successfully reached repository: %s (author: %s)", info.id, info.author)
+        files = [f.rfilename for f in info.siblings]
+        required_files = ["config.json", "model.safetensors", "tokenizer.json"]
+        for req in required_files:
+            if any(f.endswith(req) for f in files):
+                logger.info("  [PASS] Found %s", req)
+            else:
+                logger.warning("  [WARN] Missing expected file %s in repository", req)
+        return True
+    except Exception as exc:
+        logger.warning("Could not query Hugging Face API directly (%s: %s).", type(exc).__name__, exc)
+        return False
+
+
 def verify_pipeline_factory() -> bool:
-    """Verify that InferenceGuardPipeline.from_pretrained configures the rewriter service."""
+    """Verify that InferenceGuardPipeline.from_pretrained configures both models."""
     logger.info("Verifying InferenceGuardPipeline.from_pretrained wiring...")
     from src.pipeline.orchestrator import InferenceGuardPipeline
 
@@ -63,16 +85,18 @@ def verify_pipeline_factory() -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify Hugging Face hosted models for InferenceGuard.")
     parser.add_argument("--rewriter-repo", default="AT707/inferenceguard-rewriter-v1", help="Rewriter model repo ID.")
+    parser.add_argument("--risk-repo", default="AT707/InferenceGuard-Roberta-Risk", help="Risk model repo ID.")
     args = parser.parse_args()
 
-    check_hf_rewriter_metadata(args.rewriter_repo)
+    risk_ok = check_hf_risk_model_metadata(args.risk_repo)
+    rewriter_ok = check_hf_rewriter_metadata(args.rewriter_repo)
     pipeline_ok = verify_pipeline_factory()
 
-    if pipeline_ok:
+    if risk_ok and rewriter_ok and pipeline_ok:
         logger.info("All model verification checks completed successfully.")
         return 0
     else:
-        logger.error("Model verification failed.")
+        logger.warning("Some checks did not pass.")
         return 1
 
 

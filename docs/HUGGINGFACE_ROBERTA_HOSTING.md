@@ -51,7 +51,7 @@ Once published, load the model directly in code:
 ```python
 from transformers import AutoModel, AutoTokenizer
 
-repo_id = "your-org/inferenceguard-roberta-risk"
+repo_id = "AT707/InferenceGuard-Roberta-Risk"
 tokenizer = AutoTokenizer.from_pretrained(repo_id)
 model = AutoModel.from_pretrained(repo_id, trust_remote_code=True)
 

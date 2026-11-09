@@ -437,7 +437,7 @@ def readiness_check() -> ReadinessResponse:
     cuda_ready = torch is not None and torch.cuda.is_available() if "torch" in globals() and torch is not None else False
     return ReadinessResponse(
         ready=True,
-        model_id=os.getenv("RISK_MODEL_ID", "roberta-base"),
+        model_id=os.getenv("RISK_MODEL_ID", "AT707/InferenceGuard-Roberta-Risk"),
         rewriter_model_id=os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1"),
         device=os.getenv("DEVICE", "cpu"),
         cuda_available=cuda_ready,

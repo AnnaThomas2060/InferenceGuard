@@ -7,7 +7,7 @@ Services run in containerized environments with health probes and resource limit
 ## Architecture Overview
 
 InferenceGuard consists of two primary models and coordination layers:
-1. Risk Classifier: RoBERTa multi-task encoder hosted on Hugging Face Hub (`GIND123/InferenceGuard-Roberta-Risk` or `roberta-base` fallback) or served locally.
+1. Risk Classifier: RoBERTa multi-task encoder hosted on Hugging Face Hub (`AT707/InferenceGuard-Roberta-Risk` or `roberta-base` fallback) or served locally.
 2. Rewriter Engine: Fine-tuned Qwen 1.5B causal LM hosted on Hugging Face Hub (`AT707/inferenceguard-rewriter-v1`) executing privacy-preserving rewriting.
 3. API Gateway: FastAPI web service exposing REST endpoints, telemetry logging, and health checks.
 
@@ -25,7 +25,7 @@ Run the container:
 docker run -d \
     --name inference_guard \
     -p 8000:8000 \
-    -e RISK_MODEL_ID="GIND123/InferenceGuard-Roberta-Risk" \
+    -e RISK_MODEL_ID="AT707/InferenceGuard-Roberta-Risk" \
     -e REWRITER_MODEL_ID="AT707/inferenceguard-rewriter-v1" \
     -e DEVICE="cpu" \
     inference-guard-api:latest

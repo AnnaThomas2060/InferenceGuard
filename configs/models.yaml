@@ -39,7 +39,7 @@ hardware:
 
 risk_estimator:
   roberta_hub:
-    repo_id: GIND123/InferenceGuard-Roberta-Risk
+    repo_id: AT707/InferenceGuard-Roberta-Risk
     base_model: roberta-base
     params: 125_000_000
     vram_fp16_gb: 0.25

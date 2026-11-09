@@ -38,6 +38,7 @@ class TestApiProduction(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("ready", data)
+        self.assertIn("model_id", data)
         self.assertIn("device", data)
         self.assertIn("cuda_available", data)
         self.assertIn("rewriter_model_id", data)
