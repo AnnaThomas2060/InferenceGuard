@@ -116,11 +116,36 @@ def package_and_upload(
     logger.info("Initializing model architecture...")
     if torch is not None:
         model = RobertaRiskClassifier(config=config)
-        if checkpoint_dir and (Path(checkpoint_dir) / "model.pt").exists():
-            state_dict = torch.load(Path(checkpoint_dir) / "model.pt", map_location="cpu")
-            model.load_state_dict(state_dict)
-            logger.info("Loaded custom weights from %s", checkpoint_dir)
-        torch.save(model.state_dict(), out_path / "pytorch_model.bin")
+        if checkpoint_dir:
+            ckpt_p = Path(checkpoint_dir)
+            loaded = False
+            for w_name in ["model.safetensors", "pytorch_model.bin", "model.pt"]:
+                if (ckpt_p / w_name).exists():
+                    try:
+                        if w_name.endswith(".safetensors"):
+                            from safetensors.torch import load_file
+                            state_dict = load_file(str(ckpt_p / w_name))
+                        else:
+                            state_dict = torch.load(ckpt_p / w_name, map_location="cpu")
+                        model.load_state_dict(state_dict, strict=False)
+                        logger.info("Loaded custom weights from %s/%s", checkpoint_dir, w_name)
+                        loaded = True
+                        break
+                    except Exception as exc:
+                        logger.warning("Failed loading %s: %s", w_name, exc)
+            if not loaded and hasattr(RobertaRiskClassifier, "from_pretrained"):
+                try:
+                    model = RobertaRiskClassifier.from_pretrained(checkpoint_dir)
+                    logger.info("Loaded custom weights via from_pretrained(%s)", checkpoint_dir)
+                except Exception:
+                    pass
+        if hasattr(model, "save_pretrained"):
+            try:
+                model.save_pretrained(out_path)
+            except Exception:
+                torch.save(model.state_dict(), out_path / "pytorch_model.bin")
+        else:
+            torch.save(model.state_dict(), out_path / "pytorch_model.bin")
 
     if AutoTokenizer is not None:
         try:
