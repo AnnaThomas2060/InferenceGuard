@@ -26,8 +26,9 @@ class TestApiProduction(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data["status"], "healthy")
+        self.assertEqual(data["status"], "ok")
         self.assertEqual(data["service"], "inference-guard")
+        self.assertIn("version", data)
         self.assertIn("timestamp", data)
 
     def test_readiness_endpoint(self) -> None:

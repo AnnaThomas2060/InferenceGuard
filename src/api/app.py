@@ -355,8 +355,9 @@ class AnalyzeResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: str
-    service: str
+    status: str = "ok"
+    version: str = "2.0.0"
+    service: str = "inference-guard"
     timestamp: float
 
 
@@ -392,7 +393,8 @@ RewriteResponse = WebRewriteResponse
 def health() -> HealthResponse:
     """Healthcheck and container liveness probe confirming API availability."""
     return HealthResponse(
-        status="healthy",
+        status="ok",
+        version="2.0.0",
         service="inference-guard",
         timestamp=time.time(),
     )
