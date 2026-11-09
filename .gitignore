@@ -5,3 +5,12 @@ __pycache__/
 .ruff_cache/
 reports/*.json
 uvicorn.log
+*.safetensors
+*.bin
+*.pt
+uv.lock
+artifacts/rewriter_qlora_0.5b/
+artifacts/rewriter_qlora/README.md
+artifacts/rewriter_qlora/chat_template.jinja
+artifacts/rewriter_qlora/tokenizer.json
+artifacts/rewriter_qlora/tokenizer_config.json

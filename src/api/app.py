@@ -89,7 +89,11 @@ scaler = AttributeTemperatureScaler()
 utility_eval = BidirectionalUtilityEvaluator()
 legacy_utility_eval = UtilityEvaluator()
 presidio_baseline = PresidioBaseline()
-rewriter_service = QwenPrivacyRewriterService()
+rewriter_model_id = os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1")
+rewriter_service = QwenPrivacyRewriterService(
+    base_model_name=rewriter_model_id,
+    load_model=os.getenv("LOAD_REWRITER_WEIGHTS", "false").lower() in ("true", "1", "yes"),
+)
 telemetry_logger = PrivacySafeTelemetryLogger()
 
 # Rule-guided calibrated fallback predictor for offline / headless environments
@@ -359,6 +363,7 @@ class HealthResponse(BaseModel):
 class ReadinessResponse(BaseModel):
     ready: bool
     model_id: Optional[str] = None
+    rewriter_model_id: Optional[str] = None
     device: Optional[str] = None
     cuda_available: bool = False
     error: Optional[str] = None
@@ -433,6 +438,7 @@ def readiness_check() -> ReadinessResponse:
     return ReadinessResponse(
         ready=True,
         model_id=os.getenv("RISK_MODEL_ID", "roberta-base"),
+        rewriter_model_id=os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1"),
         device=os.getenv("DEVICE", "cpu"),
         cuda_available=cuda_ready,
         error=None,

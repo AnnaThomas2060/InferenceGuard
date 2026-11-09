@@ -18,6 +18,7 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - RISK_MODEL_ID=${RISK_MODEL_ID:-roberta-base}
+      - REWRITER_MODEL_ID=${REWRITER_MODEL_ID:-AT707/inferenceguard-rewriter-v1}
       - DEVICE=${DEVICE:-cpu}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - HF_TOKEN=${HF_TOKEN:-}

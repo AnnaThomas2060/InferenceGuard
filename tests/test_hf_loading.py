@@ -30,6 +30,19 @@ class TestHfLoading(unittest.TestCase):
         self.assertEqual(report.overall_risk_score, 0.0)
         self.assertEqual(report.overall_risk_band.value, "LOW")
 
+    def test_pipeline_from_pretrained_rewriter_configuration(self) -> None:
+        """Verify pipeline instantiation with custom rewriter model id.
+        The pipeline factory must assign base_model_name on the rewriter service."""
+        from src.pipeline.orchestrator import InferenceGuardPipeline
+
+        pipeline = InferenceGuardPipeline.from_pretrained(
+            risk_model_id="roberta-base",
+            rewriter_model_id="AT707/inferenceguard-rewriter-v1",
+            device="cpu",
+        )
+        self.assertIsNotNone(pipeline.rewriter_service)
+        self.assertEqual(pipeline.rewriter_service.base_model_name, "AT707/inferenceguard-rewriter-v1")
+
 
 if __name__ == "__main__":
     unittest.main()

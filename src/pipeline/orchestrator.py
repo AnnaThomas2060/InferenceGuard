@@ -8,6 +8,7 @@ bidirectional DeBERTa-v3 NLI utility validation, and Bayesian conversation leaka
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -55,16 +56,22 @@ class InferenceGuardPipeline:
         risk_model_id: str = "roberta-base",
         rewriter_model_id: Optional[str] = None,
         device: str = "cpu",
+        load_rewriter_weights: bool = False,
     ) -> InferenceGuardPipeline:
         """Instantiate a production pipeline loading models directly from Hugging Face Hub."""
         from src.risk_model.predict import CalibratedRiskPredictor
 
+        rewriter_id = rewriter_model_id or os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1")
         predictor = CalibratedRiskPredictor.from_pretrained(risk_model_id, device=device)
         return cls(
             pseudonym_manager=DeterministicPseudonymManager(),
             risk_estimator=predictor,
             cue_attributor=None,
-            rewriter_service=QwenPrivacyRewriterService(),
+            rewriter_service=QwenPrivacyRewriterService(
+                base_model_name=rewriter_id,
+                device=device,
+                load_model=load_rewriter_weights,
+            ),
             utility_evaluator=BidirectionalUtilityEvaluator(),
             leakage_tracker=BayesianConversationLeakageTracker(),
         )

@@ -36,6 +36,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8000 \
     HOST=0.0.0.0 \
     RISK_MODEL_ID=roberta-base \
+    REWRITER_MODEL_ID=AT707/inferenceguard-rewriter-v1 \
     DEVICE=cpu
 
 EXPOSE 8000

@@ -40,6 +40,7 @@ class TestApiProduction(unittest.TestCase):
         self.assertIn("ready", data)
         self.assertIn("device", data)
         self.assertIn("cuda_available", data)
+        self.assertIn("rewriter_model_id", data)
 
     def test_analyze_empty_payload(self) -> None:
         """Verify that requests missing required text fields return validation errors.

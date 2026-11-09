@@ -65,6 +65,15 @@ risk_estimator:
     when: only if base underfits after class weighting; 2.6x the cost
 
 rewriter:
+  hub_model:
+    repo_id: AT707/inferenceguard-rewriter-v1
+    base_model: Qwen/Qwen2.5-1.5B-Instruct
+    params: 1_543_714_816
+    vram_fp16_gb: 3.09
+    vram_nf4_gb: 0.98
+    context: 32768
+    verified: Qwen2ForCausalLM, safetensors checkpoint, vocab 151936, ChatML template
+    why: Hosted fine-tuned production rewriter checkpoint on Hugging Face Hub.
   chosen: Qwen/Qwen2.5-1.5B-Instruct
   params: 1_543_714_816
   vram_fp16_gb: 3.09
