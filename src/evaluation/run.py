@@ -12,9 +12,14 @@ import argparse
 import gc
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.evaluation.attacker import Phi4MiniAttacker
 from src.evaluation.presidio_baseline import PresidioBaseline

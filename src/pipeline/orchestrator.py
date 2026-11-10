@@ -8,6 +8,7 @@ bidirectional DeBERTa-v3 NLI utility validation, and Bayesian conversation leaka
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -30,24 +31,67 @@ class InferenceGuardPipeline:
 
     def __init__(
         self,
-        pseudonym_manager: DeterministicPseudonymManager,
-        risk_estimator: Any,
-        cue_attributor: Any,
-        rewriter_service: QwenPrivacyRewriterService,
-        utility_evaluator: BidirectionalUtilityEvaluator,
-        leakage_tracker: BayesianConversationLeakageTracker,
+        pseudonym_manager: Optional[Any] = None,
+        risk_estimator: Optional[Any] = None,
+        cue_attributor: Optional[Any] = None,
+        rewriter_service: Optional[Any] = None,
+        utility_evaluator: Optional[Any] = None,
+        leakage_tracker: Optional[Any] = None,
+        session_ttl_seconds: int = 3600,
     ):
         """Initialize the unified protection pipeline with all subsystem components."""
-        self.pseudonym_manager = pseudonym_manager
+        self.pseudonym_manager = pseudonym_manager or DeterministicPseudonymManager()
         self.risk_estimator = risk_estimator
         self.cue_attributor = cue_attributor
-        self.rewriter_service = rewriter_service
-        self.utility_evaluator = utility_evaluator
-        self.leakage_tracker = leakage_tracker
+        self.rewriter_service = rewriter_service or QwenPrivacyRewriterService()
+        self.utility_evaluator = utility_evaluator or BidirectionalUtilityEvaluator()
+        self.leakage_tracker = leakage_tracker or BayesianConversationLeakageTracker()
+        self.session_ttl_seconds = session_ttl_seconds
         self.sessions: Dict[str, ConversationState] = {}
+        self.session_timestamps: Dict[str, float] = {}
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        risk_model_id: Optional[str] = None,
+        rewriter_model_id: Optional[str] = None,
+        device: str = "cpu",
+        load_rewriter_weights: bool = False,
+    ) -> InferenceGuardPipeline:
+        """Instantiate a production pipeline loading models directly from Hugging Face Hub."""
+        from src.risk_model.predict import CalibratedRiskPredictor
+
+        risk_id = risk_model_id or os.getenv("RISK_MODEL_ID", "AT707/InferenceGuard-Roberta-Risk")
+        rewriter_id = rewriter_model_id or os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1")
+        predictor = CalibratedRiskPredictor.from_pretrained(risk_id, device=device)
+        return cls(
+            pseudonym_manager=DeterministicPseudonymManager(),
+            risk_estimator=predictor,
+            cue_attributor=None,
+            rewriter_service=QwenPrivacyRewriterService(
+                base_model_name=rewriter_id,
+                device=device,
+                load_model=load_rewriter_weights,
+            ),
+            utility_evaluator=BidirectionalUtilityEvaluator(),
+            leakage_tracker=BayesianConversationLeakageTracker(),
+        )
+
+    def _cleanup_expired_sessions(self) -> None:
+        """Purge inactive conversation sessions exceeding the configured time-to-live."""
+        now = time.time()
+        expired = [
+            cid for cid, last_seen in self.session_timestamps.items()
+            if now - last_seen > self.session_ttl_seconds
+        ]
+        for cid in expired:
+            self.sessions.pop(cid, None)
+            self.session_timestamps.pop(cid, None)
 
     def get_or_create_session(self, conversation_id: str) -> ConversationState:
         """Retrieve existing session state or initialize a clean conversation record."""
+        self._cleanup_expired_sessions()
+        self.session_timestamps[conversation_id] = time.time()
         if conversation_id not in self.sessions:
             self.sessions[conversation_id] = ConversationState(conversation_id=conversation_id)
         return self.sessions[conversation_id]
@@ -55,6 +99,7 @@ class InferenceGuardPipeline:
     def reset_session(self, conversation_id: str) -> None:
         """Clear active session state and associated pseudonym mappings."""
         self.sessions.pop(conversation_id, None)
+        self.session_timestamps.pop(conversation_id, None)
 
     def process_turn(
         self,

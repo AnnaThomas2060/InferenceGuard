@@ -1,0 +1,22 @@
+{
+  "model_type": "inferenceguard-roberta",
+  "base_model_name": "roberta-base",
+  "num_heads": 4,
+  "num_classes_per_head": 1,
+  "hidden_size": 768,
+  "classifier_dropout": 0.1,
+  "temperature_values": [1.15, 1.2, 1.1, 1.05],
+  "attributes": [
+    "age",
+    "location",
+    "occupation",
+    "education"
+  ],
+  "auto_map": {
+    "AutoConfig": "configuration_roberta_risk.RobertaRiskConfig",
+    "AutoModel": "modeling_roberta_risk.RobertaRiskClassifier"
+  },
+  "architectures": [
+    "RobertaRiskClassifier"
+  ]
+}

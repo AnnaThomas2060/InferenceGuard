@@ -13,6 +13,10 @@ from pathlib import Path
 import shutil
 from typing import Any, Callable, Dict, List, Optional
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 # Guard against broken multimodal C++ binary extensions in Colab (torchvision, torchaudio CUDA mismatches)
 for _broken_pkg in ("torchvision", "torchaudio"):
     sys.modules[_broken_pkg] = None

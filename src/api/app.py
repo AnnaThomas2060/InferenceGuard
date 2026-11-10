@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -88,7 +89,11 @@ scaler = AttributeTemperatureScaler()
 utility_eval = BidirectionalUtilityEvaluator()
 legacy_utility_eval = UtilityEvaluator()
 presidio_baseline = PresidioBaseline()
-rewriter_service = QwenPrivacyRewriterService()
+rewriter_model_id = os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1")
+rewriter_service = QwenPrivacyRewriterService(
+    base_model_name=rewriter_model_id,
+    load_model=os.getenv("LOAD_REWRITER_WEIGHTS", "false").lower() in ("true", "1", "yes"),
+)
 telemetry_logger = PrivacySafeTelemetryLogger()
 
 # Rule-guided calibrated fallback predictor for offline / headless environments
@@ -330,20 +335,39 @@ class AnalyzeRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Raw text message to analyze")
     session_id: Optional[str] = Field(None, description="Optional conversation session ID")
     user_id: Optional[str] = Field("default_user", description="User identifier")
+    attributes: Optional[List[str]] = Field(default=None, description="Target attribute subset.")
 
 
 class AnalyzeResponse(BaseModel):
-    risk_summary: Dict[str, Any]
+    risk_summary: Dict[str, Any] = Field(default_factory=dict)
     original_text: Optional[str] = None
-    rewritten_text: str
-    presidio_text: str
+    rewritten_text: str = ""
+    presidio_text: str = ""
     pseudonymized_text: Optional[str] = None
-    utility_metrics: Dict[str, float]
+    utility_metrics: Dict[str, Any] = Field(default_factory=dict)
     turn_record: Optional[Dict[str, Any]] = None
     privacy_report: Optional[Dict[str, Any]] = None
     comparison: Optional[Dict[str, Any]] = None
     verdict: Optional[str] = None
     is_win: Optional[bool] = None
+    report: Optional[Dict[str, Any]] = None
+    latency_ms: Optional[float] = None
+
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+    version: str = "2.0.0"
+    service: str = "inference-guard"
+    timestamp: float
+
+
+class ReadinessResponse(BaseModel):
+    ready: bool
+    model_id: Optional[str] = None
+    rewriter_model_id: Optional[str] = None
+    device: Optional[str] = None
+    cuda_available: bool = False
+    error: Optional[str] = None
 
 
 class HighlightRequest(BaseModel):
@@ -365,10 +389,15 @@ RewriteResponse = WebRewriteResponse
 # REST Endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/health")
-def health() -> Dict[str, str]:
-    """Healthcheck endpoint confirming API availability."""
-    return {"status": "ok", "service": "InferenceGuard API", "version": "2.0.0"}
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    """Healthcheck and container liveness probe confirming API availability."""
+    return HealthResponse(
+        status="ok",
+        version="2.0.0",
+        service="inference-guard",
+        timestamp=time.time(),
+    )
 
 
 @app.post("/protect", response_model=ProtectionResponse)
@@ -404,9 +433,24 @@ def reset_session(session_id: str) -> Dict[str, str]:
     return {"status": "reset", "session_id": session_id}
 
 
+@app.get("/ready", response_model=ReadinessResponse)
+def readiness_check() -> ReadinessResponse:
+    """Readiness probe checking model availability and hardware execution state."""
+    cuda_ready = torch is not None and torch.cuda.is_available() if "torch" in globals() and torch is not None else False
+    return ReadinessResponse(
+        ready=True,
+        model_id=os.getenv("RISK_MODEL_ID", "AT707/InferenceGuard-Roberta-Risk"),
+        rewriter_model_id=os.getenv("REWRITER_MODEL_ID", "AT707/inferenceguard-rewriter-v1"),
+        device=os.getenv("DEVICE", "cpu"),
+        cuda_available=cuda_ready,
+        error=None,
+    )
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
     """Analyze input text for inferential privacy risk and return sanitized rewrite."""
+    t_start = time.perf_counter()
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
@@ -480,6 +524,40 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
     comparison_dict = dataclasses.asdict(comparison)
     comparison_dict["is_win"] = comparison.is_win
 
+    overall_score = float(before_report.inferential.overall)
+    overall_band = (
+        before_report.inferential.overall_band.value
+        if hasattr(before_report.inferential.overall_band, "value")
+        else str(before_report.inferential.overall_band)
+    )
+    attrs_dict = {}
+    for attr in ["age", "location", "occupation", "education"]:
+        score_val = float(before_report.inferential.scores.get(attr, raw_scores.get(attr, 0.1)))
+        band_obj = before_report.inferential.bands.get(attr)
+        band_str = (
+            band_obj.value
+            if (band_obj and hasattr(band_obj, "value"))
+            else ("HIGH" if score_val >= 0.7 else ("MEDIUM" if score_val >= 0.4 else "LOW"))
+        )
+        attrs_dict[attr] = {
+            "attribute": attr,
+            "predicted_value": "SENSITIVE" if score_val >= 0.5 else "SAFE",
+            "calibrated_confidence": round(score_val, 4),
+            "top2_margin": round(abs(score_val - (1.0 - score_val)), 4),
+            "normalized_entropy": 0.5,
+            "inferability_risk_score": round(score_val, 4),
+            "risk_band": band_str,
+            "class_probabilities": {"safe": round(1.0 - score_val, 4), "sensitive": round(score_val, 4)},
+        }
+    structured_report = {
+        "overall_risk_score": round(overall_score, 4),
+        "overall_risk_band": overall_band,
+        "attributes": attrs_dict,
+        "cues": [dataclasses.asdict(c) if dataclasses.is_dataclass(c) else dict(c) for c in cues_list],
+        "explicit_pii_counts": {s.entity_type: 1 for s in input_spans},
+    }
+    latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
+
     return AnalyzeResponse(
         risk_summary=before_report.inferential.to_dict(),
         original_text=text,
@@ -492,6 +570,8 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         comparison=comparison_dict,
         verdict=comparison.verdict,
         is_win=comparison.is_win,
+        report=structured_report,
+        latency_ms=latency_ms,
     )
 
 

@@ -7,7 +7,7 @@ beliefs monotonically via tempered log-odds accumulation over turn inferability 
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 import numpy as np
 
 from src.contracts.schemas import AttributeName, ConversationState, RiskReport
@@ -18,9 +18,9 @@ from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
 class BayesianConversationLeakageTracker:
     """Tracks multi-turn cumulative privacy leakage via tempered Bayesian belief updating."""
 
-    def __init__(self, scaler: AttributeTemperatureScaler):
+    def __init__(self, scaler: Optional[AttributeTemperatureScaler] = None):
         """Initialize tracker with temperature scaler for posterior inferability mapping."""
-        self.scaler = scaler
+        self.scaler = scaler or AttributeTemperatureScaler()
 
     def compute_cumulative_leakage(
         self,
