@@ -75,6 +75,42 @@ Validated programmatically via `scripts/verify_hf_models.py`:
 | **Risk Classifier** | `AT707/InferenceGuard-Roberta-Risk` | 125M | `config.json`, `model.safetensors`, `pytorch_model.bin`, `tokenizer.json` | Live (Public) |
 | **Privacy Rewriter** | `AT707/inferenceguard-rewriter-v1` | 1.54B | `config.json`, `model.safetensors`, `tokenizer.json`, `chat_template.jinja` | Live (Public) |
 
+### The risk model changed this week, and what that does to our numbers
+
+The container now serves a **125M RoBERTa** classifier (`RISK_MODEL_ID` defaults to
+`AT707/InferenceGuard-Roberta-Risk` in `docker-compose.yml` and the Dockerfile). Every
+risk-classifier figure this project has published is **ModernBERT**, measured in
+Session 05:
+
+| | measured on | validation macro F1 | macro ROC-AUC | per attribute |
+|---|---|---:|---:|---|
+| ModernBERT-base (149M) | 45 held-out profiles, seed 42 | 0.461 | 0.853 | occ 0.618 / edu 0.534 / loc 0.462 / age 0.232 |
+| RoBERTa-base (125M) — **now serving** | not scored | — | — | — |
+
+**We have no accuracy number for the model in the container.** The hosting checks in the
+table above verify that the weights load and the heads have the right shape; they do not
+measure whether it detects anything. `docs/methodology-review.md` finding 2 chose
+ModernBERT over RoBERTa deliberately, on context length and training recency, so this is
+a reversal of a documented decision and the reasoning for it should be written down —
+whether that is latency, hosting simplicity, or something the ModernBERT checkpoint could
+not do. It is plausibly the right call; it is not yet an argued one.
+
+**Until the new classifier is scored on the same 45 held-out profiles, no risk-model
+accuracy figure in this report or the deck applies to what we ship.** That scoring run is
+the cheapest item on next week's list and should come before any further hosting work.
+
+### Is this the same model that is running in the product?
+
+**No, and this is the week that changed.**
+
+- **Risk classifier:** the product serves RoBERTa-base from the Hub; our published metrics
+  are ModernBERT-base from Session 05. Unscored, as above.
+- **Rewriter:** the product serves `AT707/inferenceguard-rewriter-v1` (1.54B). The Session 09
+  provenance work registered a **0.5B** student adapter, and
+  `scripts/check_eval_readiness.py` still reports `BLOCKED` on the 0.5B-versus-1.5B
+  mismatch. The hosted 1.54B rewriter has not been through that readiness gate.
+- **Held-out adversary:** still not run. The north-star metric remains uncomputed.
+
 ### Test Suite Execution Summary
 
 All tests executed cleanly on the current branch (`88-hosting-and-containerization`):

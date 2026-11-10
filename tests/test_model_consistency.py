@@ -266,3 +266,49 @@ def test_committed_readiness_artifact_matches_a_fresh_run():
         f"committed readiness says {committed!r} but a fresh run says {fresh!r}. "
         f"Re-run scripts/check_eval_readiness.py and commit the result."
     )
+
+
+# --- secrets hygiene ------------------------------------------------------
+
+def test_env_files_are_ignored_but_the_example_is_not():
+    """`.env.example` tells people to put a Hugging Face *write* token in
+    `.env`, and this is a public repository.
+
+    `.env` was not ignored when that documentation shipped. Nothing leaked,
+    but the happy path in the README ended with a credential in an
+    untracked-but-not-ignored file, which is one `git add -A` from being
+    public and irreversible.
+    """
+    import subprocess
+
+    def ignored(name: str) -> bool:
+        return subprocess.run(
+            ["git", "check-ignore", "-q", name], cwd=ROOT
+        ).returncode == 0
+
+    assert ignored(".env"), ".env must be gitignored; it holds a real HF write token"
+    assert ignored(".env.local"), ".env.* variants must be gitignored too"
+    assert not ignored(".env.example"), (
+        ".env.example carries placeholders and is meant to be committed"
+    )
+
+
+def test_no_real_looking_token_is_committed():
+    """A cheap backstop for the thing the ignore rule prevents."""
+    import re
+
+    # hf_ followed by 30+ chars is the Hugging Face token shape.
+    token_like = re.compile(r"\bhf_[A-Za-z0-9]{30,}")
+    offenders = []
+    for path in sorted(ROOT.glob("**/*")):
+        if ".git" in path.parts or not path.is_file() or path.stat().st_size > 2_000_000:
+            continue
+        if path.suffix in {".safetensors", ".bin", ".pt", ".png", ".jpg", ".pptx", ".pdf"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if token_like.search(text):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, f"possible Hugging Face token committed in: {offenders}"

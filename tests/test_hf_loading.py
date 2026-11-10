@@ -1,3 +1,9 @@
+
+import pytest
+
+# Guard above the heavy imports so this reports as skipped rather than
+# failing collection on a machine without the stack. See tests/README.md.
+pytest.importorskip("torch", reason="needs optional torch; see tests/README.md")
 """Unit tests for Hugging Face Hub model loading and factory instantiation.
 These tests verify that model loading helpers handle remote identifiers and fallback logic gracefully.
 Mocked transformers and hub modules test behavior without network access."""

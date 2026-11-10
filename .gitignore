@@ -14,3 +14,10 @@ artifacts/rewriter_qlora/README.md
 artifacts/rewriter_qlora/chat_template.jinja
 artifacts/rewriter_qlora/tokenizer.json
 artifacts/rewriter_qlora/tokenizer_config.json
+
+# Secrets. .env.example is committed and carries placeholders; .env is where
+# people are told to put a real Hugging Face *write* token, and this is a
+# public repository. Ignore it before someone follows the README.
+.env
+.env.*
+!.env.example
