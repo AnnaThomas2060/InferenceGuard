@@ -353,79 +353,64 @@ the standardized response is:
 Do not answer the substantive question.
 
 ---
+# 11. Finalize the Original Query
 
-# 11. Initial Submission
+Ask the participant to compose the question they would send to an AI. Once
+they indicate it is ready, save the exact text and record the formulation
+time and the scenario details they included.
 
-Once the participant submits the query:
+Keep the finalized query as the trial input. In the current interface,
+wait to click **Check my message** until the pre-result questions are complete.
 
-1. save the exact query;
-2. record query formulation time;
-3. record which available anchors were used;
-4. record whether any pre-submission evaluator intervention occurred;
-5. capture the system risk output.
+# 12. Pre-Result Privacy and Rewrite Assessment
 
-If the query is generic or risk-negative, **do not ask the participant to reformulate it**.
+Ask these questions in order, before showing the system's risk scores,
+warnings, or suggested text.
 
-Continue the experiment normally.
+1. **Would you send this question as written, change it first, or choose
+   not to send it? What makes you say that?**
+2. **Is there anything in your question that you would prefer to keep
+   private? If so, what?**
+3. **Would you want this question rewritten for privacy before sending
+   it? Why or why not?**
 
----
+Allow the participant to say “none” or “unsure.” Record their answers in
+their own words. If they propose a change, record it as a pre-result
+preference and submit the finalized original for the system comparison.
 
-# 12. Comprehension Probe
+Use neutral prompts. Avoid naming specific privacy attributes, pointing
+out clues, or telling the participant whether their judgment is correct.
 
-Before any rewrite occurs, ask:
+# 13. Show the System Result and Collect Feedback
 
-> **"What is the system telling you?"**
+Submit the finalized original query and show the original and suggested
+text together with the system's evaluation. Ask:
 
-Do not:
+1. **In your own words, what is the system telling you about your question
+   and what it changed, if anything?**
+2. **Did the result address the details you wanted to keep private? Is
+   there anything you still want to keep private?**
+3. **Did it keep the details you need for your question? Was anything
+   important removed or changed?**
+4. **Which would you send: the original, the suggested version, a version
+   you edit first, or neither? Why?**
 
-- explain the warning;
-- correct the participant;
-- identify missed inference vectors;
-- tell them whether their interpretation is correct.
+Record the final choice and the reason. If the participant edits either
+version, save the exact edited text and record which version they started
+from. Measure decision time from the moment the result is visible.
 
-Record the response.
+# 14. Unchanged Output
 
-Then ask:
+If the system returns the original text, show the actual result and ask
+the same questions. For the final choice, use “send it as written,”
+“edit it first,” or “send neither.”
 
-> **"Is anything here surprising or unclear?"**
+Record the reported risk separately from whether the text changed.
+Distinguish a low-risk passthrough from an unchanged result that still
+has flagged risk. Record whether the participant noticed that the text
+was unchanged and how that affected their decision.
 
-Record the response without defending the system.
 
----
-
-# 13. Rewrite Phase
-
-If a rewrite is available, allow the participant to request it.
-
-After the rewrite appears, ask:
-
-> **"Would you send this version as-is, edit it first, or not send it?"**
-
-Then ask:
-
-> **"Why?"**
-
-If the participant edits the rewrite, capture the exact edit.
-
-Particular attention should be paid to information that the participant restores after the system removes it. Restored information may indicate that the rewrite eliminated a task-critical constraint.
-
----
-
-# 14. Zero-Risk Phase
-
-If no rewrite is performed, do not simulate or request one merely to continue the experiment.
-
-Confirm comprehension using the same neutral probe:
-
-> **"What is the system telling you?"**
-
-The participant should ideally recognize that:
-
-1. the system did not identify meaningful inferential markers;
-2. the original query was preserved;
-3. no privacy-enhancing edit was performed.
-
-A participant who believes that an unchanged query was nevertheless "made safer" should be recorded as a **trust-calibration failure**.
 
 ---
 
