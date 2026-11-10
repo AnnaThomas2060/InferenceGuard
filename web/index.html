@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>InferenceGuard — Review before you share</title>
-  <link rel="stylesheet" href="style.css?v=ui-v1">
-  <script src="app.js?v=ui-v1" defer></script>
+  <link rel="stylesheet" href="style.css?v=rewrite-diff-v1">
+  <script src="app.js?v=rewrite-diff-v1" defer></script>
 </head>
 <body>
 <div class="app-layout">
@@ -47,10 +47,19 @@
       <section class="card" aria-labelledby="comparison-title">
         <span class="eyebrow">3 · REVIEW YOUR WORDS</span>
         <h2 id="comparison-title">Compare before you use</h2>
-        <p id="change-description"></p>
+        <p id="change-description" role="status"></p>
+        <ul id="change-legend" class="change-legend" aria-label="Text change legend" hidden>
+          <li><del class="rewrite-removed">Removed or replaced</del> in the original</li>
+          <li><ins class="rewrite-added">Added or replacement text</ins> in the suggestion</li>
+        </ul>
         <div class="comparison-grid">
           <div><h3>Your original message</h3><div id="original-display" class="text-pane"></div></div>
-          <div><h3>Suggested version</h3><label for="suggested-text" class="sr-only">Suggested text; editable after selecting Edit</label><textarea id="suggested-text" class="text-pane" rows="7" readonly></textarea></div>
+          <div>
+            <h3>Suggested version</h3>
+            <div id="suggested-display" class="text-pane"></div>
+            <label for="suggested-text" class="sr-only">Edit suggested text</label>
+            <textarea id="suggested-text" class="text-pane" rows="7" hidden></textarea>
+          </div>
         </div>
         <p id="edit-note" class="notice" hidden>Edited locally: the scores above do not evaluate your edits. Use “Check edited version” to evaluate them; this adds a conversation turn.</p>
         <div class="actions"><button id="copy-btn" class="primary">Copy suggested text</button><button id="edit-btn">Edit suggested text</button><button id="check-edit-btn" hidden>Check edited version</button></div>
