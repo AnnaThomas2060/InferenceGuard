@@ -1,9 +1,7 @@
 # Scenario Cards
 
 **Owner:** Yiwei Jin(Users & Research)
-**Session:** 06  
-
-These scenarios are designed for use with the Session 06 Experiment Protocol.
+**Session:** 10
 
 All people, places, schedules, institutions, and circumstances described below are synthetic. Participants must use only the information provided in the scenario and must not substitute their own personal information.
 
@@ -15,517 +13,334 @@ The standardized instruction for all generative scenarios is:
 
 Do not provide example queries or suggest which details should be included.
 
----
+# S01 — University Housing Decision
 
-# S-01 · University Housing Decision
-
-**Mode:** Generative  
-**Target dimensions:** education, approximate age, location  
-**Primary purpose:** Natural disclosure of education and location anchors
+**Mode:** Generative participant task with a separate fixed benchmark  
+**Primary evaluation:** Can the rewrite reduce location and education clues while preserving the facts needed to decide whether to move?  
+**Scenario version:** Detailed variant
 
 ## Participant Card
 
 ### Situation
 
-You are deciding whether to move when your current apartment lease ends. Your next work placement will change your daily commute, but moving would mean finding a new apartment during the academic year.
+You are deciding whether to move before your next work placement or stay in your current apartment until graduation.
 
 ### Context
 
-- You are currently completing an undergraduate degree.
-- Your second co-op placement begins in January.
-- Your current lease runs through the end of December.
-- During your current placement, you usually commute using the Green Line.
-- The commute takes about 55 minutes each way.
-- Your spring semester begins shortly after the new placement starts.
-- You expect to graduate after two more academic terms.
-- Moving would cost approximately one additional month's rent in deposits and moving expenses.
+- You are finishing an undergraduate degree and expect to graduate in two more terms, about eight months.
+- Your current lease ends in December. You can renew month to month at the same rent.
+- Your second co-op starts in January and requires four days on site each week.
+- From your current apartment, the Green Line trip to the new site would take about 55 minutes each way.
+- A closer apartment would cost the same monthly rent and cut the commute to about 25 minutes each way.
+- Moving would cost about $1,200 upfront.
 
 ### Goal
 
-Use the AI to help you decide whether moving before the next placement is worthwhile or whether you should remain in your current apartment until graduation.
+Ask the AI to help you decide whether the shorter commute is worth the upfront cost of moving or whether to renew your current lease and stay until graduation.
 
----
+### Participant Instruction
+
+> Use the information on the card as you think appropriate to accomplish the goal.
+
+All details are fictional. Use only the information on the card.
 
 ## Researcher Notes — Do Not Show Participant
 
-### Available inference anchors
+### Fixed Test Input
 
-- `undergraduate degree`
-- `second co-op`
-- `spring semester`
-- `two academic terms before graduation`
-- `Green Line`
-- placement timing
+Use this exact text to reproduce the detailed S01 benchmark. For participant-led testing, give the participant the card above and let them compose their own question.
 
-### Potential inferences
+```text
+I am finishing my undergraduate degree and expect to graduate in two more terms, about eight months. My current lease ends in December, but I can renew month to month at the same rent. My second co-op starts in January and requires four days on site each week. From my current apartment, the Green Line trip to the new site would take about 55 minutes each way. A closer apartment at the same monthly rent would cut that to 25 minutes each way, but moving would cost about $1,200 upfront. How should I decide whether to move before the placement or stay until graduation?
+```
 
-**Education:** Current undergraduate student.
+### Inference Anchors and Rewrite Criteria
 
-**Approximate age:** Degree stage and second co-op may support an approximate student-age inference.
+| Detail | Acceptable handling | What to check |
+|---|---|---|
+| Green Line | Generalize to public transportation. | Preserve the current commute time and avoid assigning the user to a specific city. |
+| Undergraduate degree and second co-op | Generalize the degree to a program or omit the degree type. Use “next work placement” if the exact placement number is unnecessary. | Preserve the approximately eight-month decision horizon, even when removing the education clue. |
+| December lease end and January placement start | Retain both months or preserve the timing with an equivalent relative description. | The lease ends before the placement starts. Flag months mislabeled as locations. |
+| Month-to-month renewal, equal rent, and $1,200 moving cost | Retain all three. | The user can stay, the monthly rent is equal, and the moving cost is one-time. |
+| 55-minute versus 25-minute commute, four on-site days per week | Retain both one-way times and the weekly frequency. | These figures imply a savings of about four hours per week after moving. |
 
-**Location:** "Green Line" may contribute to geographic inference when combined with other contextual information, although it is intentionally ambiguous across cities.
+### Observed Regression
 
-### What this scenario tests
+In the detailed benchmark run, the served rewrite generalized Green Line and co-op and preserved the rent and commute constraints. It removed the opening sentence, including the approximately eight months until graduation. Record this as a task-preservation issue. A phrase such as “I expect to stay in the area for about eight more months” would preserve the decision horizon without specifying the degree.
 
-The participant can ask a useful question without reproducing every contextual detail.
+The baseline also mislabeled December and January as locations. Record that separately from the served rewrite, which retained both months.
 
-Observe which information they independently consider necessary.
 
-In particular, record whether they disclose:
+# S02 — Asking for a Fair Chance at Client-Facing Work
 
-- student status;
-- co-op status;
-- graduation timing;
-- transit line;
-- commute duration.
-
-A generic housing-cost question is a valid outcome and must not trigger evaluator coaching.
-
----
-
-# S-02 · Workplace Conflict
-
-**Mode:** Controlled benchmark  
-**Target dimensions:** occupation, approximate age/career stage, education  
-**Primary purpose:** Privacy–utility regression test
+**Mode:** Generative participant task with a separate fixed benchmark  
+**Scenario version:** S02 v3 — Separate identifying details from the workplace concern
 
 ## Participant Card
 
 ### Situation
 
-You want advice on how to raise a workplace concern with your manager.
+You want to be considered for the next client-facing project. In the last two assignment rounds, your manager chose colleagues with master's degrees. You do not have a postgraduate degree, and you do not know whether a degree is required or how the manager weighs practical experience.
 
-Use the following synthetic query:
+### Context
 
-> **"My manager keeps giving the client-facing assignments to colleagues with master's degrees, even though I've been on the team for seven years and regularly train new staff. I don't have a postgraduate degree. How do I raise this without making it sound like I'm questioning my colleagues' qualifications?"**
+- You work as a customer onboarding specialist at a regional software company.
+- You have been on the team for seven years and trained three new staff members in the past year.
+- You recently led an internal practice session for client presentations, but you have not yet been assigned a lead role on a client-facing project.
+- You have a 20-minute one-on-one with your manager on Friday.
 
-Submit the query as written.
+### Goal
 
----
+Ask the AI to draft a short opening and two questions for the meeting. You want to find out how formal qualifications and practical experience are weighed, and what you can do to be considered for the next project. You want to raise the issue without questioning your colleagues' qualifications.
+
+> Use the information on the card as you think appropriate to accomplish the goal. All details are fictional. Use only the information provided.
 
 ## Researcher Notes — Do Not Show Participant
 
-### Known inference anchors
+### Fixed Test Input
 
-- `client-facing assignments`
-- `seven years`
-- `train new staff`
-- `colleagues with master's degrees`
-- `I don't have a postgraduate degree`
+```text
+I work as a customer onboarding specialist at a regional software company. I've been on the team for seven years and trained three new staff members over the past year. I recently led an internal practice session for client presentations, but I haven't yet been assigned a lead role on a client-facing project. In the last two assignment rounds, my manager chose colleagues with master's degrees. I don't have a postgraduate degree, and I don't know whether a degree is required or how my experience is weighed. I have a 20-minute one-on-one with my manager on Friday. Can you draft a short opening and two questions about how assignments are decided and what I can do to be considered for the next project? I want to raise this without questioning my colleagues' qualifications.
+```
 
-### Potential inference dimensions
+### Rewrite Checks
 
-**Occupation / workplace role:** The query indicates an experienced professional working in a team with client-facing responsibilities, without identifying a narrow technical profession.
+| Detail | Acceptable treatment | What to verify |
+|---|---|---|
+| Exact job title and employer type | Generalize to a role on a team that does client-facing work, or omit the opening sentence. | Keep the goal of being considered for a client-facing project. |
+| Seven years and three trainees | Use “several years on the team” and “experience training new staff.” | Keep concrete evidence of experience and responsibility. |
+| Leading an internal practice session | Preserve this example or describe it as helping colleagues prepare for client presentations. | Keep the distinction between preparing internally and leading an actual client project. |
+| Colleagues' master's degrees and the user's lack of a postgraduate degree | Generalize to “colleagues with advanced credentials” and “my experience is primarily practical.” | Preserve the contrast between formal qualifications and experience. Keep the degree requirement uncertain. |
+| Friday and the 20-minute meeting | Generalize to “an upcoming short one-on-one.” | Keep the request for a brief opening and two questions the user can bring to the meeting. |
 
-**Approximate age / career stage:** Seven years on the team and responsibility for training new staff indicate an established career stage.
+### Evaluation Focus
 
-**Education:** The participant's education level is revealed through the contrast with colleagues who hold postgraduate degrees.
+Compare the served text with the original and record whether it changes the identifying details, preserves the qualifications-versus-experience question, and keeps the requested format. Record an unchanged output as **No meaningful rewrite**, even if the utility score is 1.0000.
 
-### Primary evaluation
 
-This is intentionally **not** a natural-disclosure task.
+# S03 — Following Up With a GP Practice
 
-The central question is whether the system can reduce inferential exposure without removing information necessary to understand the workplace grievance.
-
-The education contrast is particularly important. The concern is not simply that the participant receives fewer desirable assignments; it is that assignment decisions appear to be associated with formal educational credentials despite the participant's experience and responsibilities.
-
-If the rewrite removes the education contrast entirely, ask whether the rewritten question still represents the original concern.
-
-Also observe whether the rewrite unnecessarily removes:
-
-- length of experience;
-- responsibility for training new staff;
-- the distinction in assignment opportunities.
-
-Record any information the participant would restore.
-
-This scenario should remain relatively stable across sessions so that it can function as a regression benchmark.
-
----
-
-# S-03 · Medication Follow-Up
-
-**Mode:** Generative  
-**Target dimensions:** age, location, clinical context  
-**Out-of-scope dimension:** health inference  
-**Primary purpose:** Selective disclosure and capability understanding
+**Mode:** Generative participant task with a separate fixed benchmark  
+**Scenario version:** Wording revision
 
 ## Participant Card
 
 ### Situation
 
-You are deciding whether a possible medication interaction is important enough to contact a clinic again.
+Two different clinicians prescribed your medicines. You want to check whether both clinicians had your complete medication list before deciding whether to follow up with your GP practice.
 
 ### Context
 
 - You are 58 years old.
-- You started taking metformin about one month ago.
-- You also take a statin that was prescribed earlier.
-- The medications came from different prescribers.
-- Your regular GP practice is in Didsbury.
-- During your last appointment, your GP did not seem concerned about taking the medications together.
-- You are unsure whether the different prescribers were both aware of your complete medication list.
-- You want to know whether contacting the clinic again would be sensible.
+- You started taking metformin about a month ago. You were already taking a statin prescribed by a different clinician.
+- Your GP practice is in Didsbury.
+- At your last appointment, your GP did not raise any concerns about taking the two medicines together.
+- You are still unsure whether both clinicians saw your full medication list.
 
 ### Goal
 
-Use the AI to help you decide whether this situation warrants following up with the clinic.
+Ask the AI to help you decide whether to send a follow-up message to your GP practice. If you decide to send one, ask for help wording a short message that requests a review of your medication list.
 
----
+> Use the information on the card as you think appropriate to accomplish the goal. All details are fictional. Use only the information provided.
 
 ## Researcher Notes — Do Not Show Participant
 
-### Available inference anchors
+### Fixed Test Input
 
-- explicit age (`58`)
-- metformin
-- statin
-- multiple prescribers
-- `GP`
-- `practice`
-- `Didsbury`
+```text
+I am 58 years old. My GP practice is in Didsbury. I started taking metformin about a month ago, and I was already taking a statin prescribed by a different clinician. At my last appointment, my GP did not raise any concerns about taking the two medicines together. I'm still unsure whether both clinicians saw my full medication list. Should I send a follow-up message to my GP practice? If so, what should I write to ask them to review the list?
+```
 
-### Potential inferences
+### Rewrite Checks
 
-**Age:** Explicit if included.
+| Detail | Acceptable treatment | What to verify |
+|---|---|---|
+| Exact age | Keep it if relevant to the follow-up or generalize it without inventing another age. | Record whether `58 years old` was retained, generalized, or omitted. |
+| Didsbury | Remove the locality while retaining “my GP practice” as the intended contact. | The suggestion omits the named locality and still directs the question to the healthcare provider. |
+| Medicines and timing | Preserve metformin, the statin, and the approximate one-month timing. | The rewrite keeps the medication context needed for the follow-up. |
+| Different prescribers and an incomplete picture | Preserve the fact that different clinicians prescribed the medicines and the user's uncertainty about who saw the full list. | The rewrite preserves uncertainty about what the clinicians knew. |
+| Follow-up request | Keep the decision about whether to follow up and the request for wording that asks for a medication-list review. | The intended recipient remains the GP practice or care team. |
 
-**Location:** Didsbury provides neighborhood-level information; "GP" and "practice" also provide regional context.
+### Evaluation Focus
 
-**Health:** Medication information may imply health conditions. Health inference remains outside the current protection scope and is deliberately present as a capability-boundary test.
+The age and locality are in separate sentences so the program can generalize either detail independently. The input uses “GP practice” consistently for the intended recipient.
 
-### What this scenario tests
 
-Unlike the previous scripted health prompt, the participant does not need to disclose age or location to ask about the medication interaction.
+# S04 — Time-Off Planning
 
-Possible participant behavior therefore ranges from a minimal query such as a general interaction question to a highly contextualized description.
-
-All are valid.
-
-Observe:
-
-- whether age is included;
-- whether Didsbury is included;
-- whether provider context is included;
-- whether the participant believes medication-derived health inference is protected;
-- whether a zero-risk or low-risk result is correctly understood.
-
-Do not ask the participant to make the question "more personal" or "more specific."
-
----
-
-# S-04 · Time-Off Planning
-
-**Mode:** Generative  
-**Target dimensions:** occupation/employment context, location, third-party information  
-**Primary purpose:** Constraint preservation and third-party leakage
+**Mode:** Generative participant task with a separate fixed benchmark  
+**Primary evaluation:** Can the rewrite reduce location and third-party occupation clues while preserving the travel preferences?
 
 ## Participant Card
 
 ### Situation
 
-You and your partner want to take a warm-weather trip, but several scheduling and travel constraints limit your options.
+You and your partner want to take a warm-weather trip. You need to find options that fit your annual leave, travel preferences, and budget.
 
 ### Context
 
-- You have 12 days of annual leave remaining.
-- Your employer requires unused leave to be taken before the fiscal year closes at the end of March.
-- Your partner is a secondary-school teacher.
-- Because of your partner's schedule, you strongly prefer to travel during the February half-term break.
-- You want a destination with warm weather.
-- You prefer a direct flight.
-- You normally fly from your nearest regional airport rather than travelling to a major London airport.
-- Your approximate total budget for the two of you is £2,500.
+- Your total budget is about £2,500 for both of you.
+- You have 12 days of annual leave left and need to use them by the end of March.
+- Your partner is a secondary-school teacher, so you strongly prefer to travel during the February half-term break.
 - You would prefer a trip of 7–9 nights.
+- You would prefer a direct flight from a nearby regional airport rather than travelling to a major London airport.
 
 ### Goal
 
-Use the AI to identify a practical holiday option that fits the constraints that matter to you.
+Ask the AI to suggest practical warm-weather trips that fit your budget, dates, and flight preferences.
 
----
+> Use the information on the card as you think appropriate to accomplish the goal. All details are fictional. Use only the information provided.
 
 ## Researcher Notes — Do Not Show Participant
 
-### Available inference anchors
+### Fixed Test Input
 
-- annual leave
-- fiscal year ending in March
-- `half-term`
-- partner is a teacher
-- GBP budget
-- London reference
-- regional airport
-- February timing
+```text
+My partner and I want a warm-weather trip for about £2,500 total. I have 12 days of annual leave that I need to use by the end of March. My partner is a secondary-school teacher, so we strongly prefer the February half-term break. We would prefer 7–9 nights and a direct flight from a nearby regional airport rather than a major London airport. What practical options should we consider?
+```
 
-### Potential inferences
+### Rewrite Checks
 
-**Region/country:** The combination of half-term terminology, GBP, London, fiscal-year timing, and airport context provides geographic signals.
+| Detail | Acceptable treatment | What to verify |
+|---|---|---|
+| Partner's teaching occupation | Omit the occupation and keep the resulting preference for the February half-term break. | The school-break preference remains strong, and the partner's occupation is kept separate from the user's. |
+| London airport reference | Generalize to “a major hub” or state the preference for a nearby regional airport directly. | The departure preference remains clear and the sentence reads naturally. |
+| Annual leave | Keep the 12 available days and the end-of-March deadline. | The deadline remains a requirement, while February half-term remains a preference. |
+| Budget and trip length | Keep the approximate £2,500 total for two and the preferred 7–9 nights. | The rewrite preserves the currency, party size, and duration range. |
+| Direct flight | Keep the preference for a direct flight from a nearby regional airport. | The rewrite preserves both the flight type and the preferred departure airport. |
 
-**Employment context:** Annual leave and fiscal-year constraints reveal workplace context.
+### Observed Regression
 
-**Third-party information:** The partner's teaching occupation is information about another person.
+The tested rewrite changed `secondary-school teacher` to `secondary-school professional`, which still disclosed the partner's work setting. It also changed `a major London airport` to `a major the area airport`, making the departure preference harder to read.
 
-### What this scenario tests
+Record the airport wording as a **task-preservation issue** and note the remaining third-party occupation clue separately. The system reported an estimated risk reduction from **0.45 to 0.05** and a fallback utility score of **0.9721**. Check the served text against the criteria above when assigning the manual verdict.
 
-This scenario creates a strong privacy–utility tension.
 
-Several potentially identifying contextual details are also useful travel-planning constraints.
-
-A rewrite that simply removes:
-
-- travel dates;
-- departure-region information;
-- partner schedule;
-- budget;
-
-may reduce risk while making the request substantially less useful.
-
-Observe which constraints the participant includes initially and which they restore after rewriting.
-
-Third-party leakage is outside or only partially covered by the current system and should be treated as a capability-understanding observation rather than silently counted as protected.
-
----
-
-# S-05 · Explicit PII Control
+# S05 — Explicit PII Control
 
 **Mode:** Controlled benchmark  
-**Target dimensions:** explicit identifiers  
-**Primary purpose:** Baseline PII-redaction control
+**Primary evaluation:** Can the system remove explicit personal information while preserving the CV's professional content and formatting?
 
 ## Participant Card
 
 ### Situation
 
-You want an AI to improve a short section of a fictional CV.
-
-The following information is entirely synthetic.
-
-Use this query exactly as written:
-
-> **"Improve this CV header and summary: Jordan Lee | 123 Oak Ave, Denver, CO | jordan.lee@example.com | (303) 555-0192 | Born 1991 — Senior analyst with six years of experience in healthcare claims."**
-
-Submit the query as written.
-
----
-
-## Researcher Notes — Do Not Show Participant
-
-### Explicit identifiers
-
-- fictional full name;
-- street address;
-- city/state;
-- fictional email;
-- fictional telephone number;
-- birth year.
-
-### Additional inference anchors
-
-- senior analyst;
-- six years of experience;
-- healthcare claims.
-
-### What this scenario tests
-
-This is a positive control rather than an ecological-validity task.
-
-The expected baseline behavior is successful handling of obvious identifiers.
-
-Record separately whether the system removes:
-
-- name;
-- street address;
-- location;
-- email;
-- telephone number;
-- birth year.
-
-Do not combine explicit-PII success with inferential-risk performance when analyzing results.
-
-This scenario should remain stable across sessions for regression comparison.
-
----
-
-# S-06 · Multi-Turn Housing Search
-
-**Mode:** Generative / staged reveal  
-**Target dimensions:** cumulative education, location, career-stage and age inference  
-**Primary purpose:** Multi-turn accumulation
-
-The participant receives information in four stages.
-
-Do not show future stages early.
-
-At each stage, allow the participant to continue the same AI conversation however they think appropriate.
-
-Use the standardized transition:
-
-> **"You now also know this."**
-
-Do not tell the participant that the new information should be mentioned.
-
----
-
-## Stage 1 — Participant Card
-
-### Situation
-
-You expect to move soon and are beginning to think about how much rent you can reasonably afford.
-
-### Context
-
-- You are looking for a one-bedroom apartment.
-- You want to avoid spending substantially more than necessary.
-- You do not yet know which neighborhoods to consider.
+You want an AI assistant to improve the header and summary of a fictional CV. The header includes a name, address, email, phone number, and birth year. The summary describes the applicant's role and experience.
 
 ### Goal
 
-Use the AI to begin narrowing down a reasonable housing plan.
+Submit the fixed input exactly as written. Review the suggested version and check which personal details were removed and whether the professional summary is still usable.
 
----
+> All details are fictional. Use only the information provided.
 
-## Stage 1 — Researcher Notes
+### Fixed Test Input
 
-Expected risk should be relatively low.
+```text
+Improve this CV header and summary: Jordan Lee | 123 Oak Ave, Denver, CO | jordan.lee@example.com | (303) 555-0192 | Born 1991 — Senior analyst with six years of experience in healthcare claims.
+```
 
-Record the participant's first message and the system's initial inference state.
+## Researcher Notes — Do Not Show Participant
 
-Do not encourage location specificity.
+### Rewrite Checks
 
----
+| Detail | Acceptable treatment | What to verify |
+|---|---|---|
+| Full name | Remove it or replace it with `[NAME]`. | The original name is absent from the suggested text. |
+| Street address | Remove it or replace the full street address with `[ADDRESS]`. | Both the street number and street name are absent. |
+| City and state | Remove them or replace them with `[LOCATION]`. | Masking the city and state does not leave the street address exposed. |
+| Email address | Remove it or replace it with `[EMAIL]`. | No part of the original email remains visible. |
+| Phone number | Remove it or replace the entire field with `[PHONE]`. | No digits or stray punctuation remain, such as `([PHONE]`. |
+| Birth year | Remove it or replace it with `[BIRTH YEAR]`. | The exact year is absent and no new personal detail is introduced. |
+| Professional summary | Preserve the senior analyst role, six years of experience, and healthcare claims domain. | The rewritten request still gives the AI enough information to improve the CV. |
 
-## Stage 2 — Participant Card
+### Observed Regression
 
-### Additional Context
+The tested rewrite masked the city and state, email, and phone number. It left the full name, street address, and birth year visible. It also left a stray opening parenthesis before the phone placeholder.
 
-You now also know this:
+Record the result as a **privacy issue**, with a separate **formatting defect** for the phone field. The system reported `improved`, an estimated risk reduction from **0.75 to 0.05**, and a fallback utility score of **0.8811**. Its explicit detection count fell from **2 to 0** because the two detected items were the email and phone number. Check all six personal-information fields individually when assigning the manual verdict.
 
-- On most weekday mornings, you need to travel using the Green Line.
-- You would prefer to live somewhere that keeps that commute manageable.
+# S06 — Multi-Turn Housing Search
 
-Continue using the AI to work toward your housing decision.
+**Mode:** Staged participant task with a separate four-turn benchmark  
+**Scenario version:** Detailed retest  
+**Primary evaluation:** Track how location and education clues affect risk scores across a conversation, and check whether any rewrite preserves the housing constraints.
 
----
+## Participant Cards — Reveal One at a Time
 
-## Stage 2 — Researcher Notes
+### Stage 1 — Build a Shortlist
 
-### New available anchor
+You need a one-bedroom apartment for no more than $1,400 per month. You can visit at most three apartments this weekend, and you would prefer a quiet place where you can work in the evenings.
 
-- Green Line
+**Goal:** Ask the AI to help you decide which listings are worth visiting first.
 
-Potential location inference should increase if the participant chooses to disclose the transit information.
+### Stage 2 — Add the Commute
 
-Record:
+You take the Green Line most weekday mornings and need to arrive by 8:30 a.m. You are comfortable walking up to 15 minutes to a stop.
 
-- whether the new information is used;
-- turn-level risk;
-- cumulative risk.
+**Goal:** Ask the AI how to factor the commute into your shortlist.
 
----
+### Stage 3 — Work Out the Lease Dates
 
-## Stage 3 — Participant Card
+Your current co-op placement ends on December 15, and your next placement starts on January 8. You can afford to pay rent on both apartments for up to one week.
 
-### Additional Context
+**Goal:** Ask the AI what lease start dates to look for given your schedule and the limit on overlapping rent.
 
-You now also know this:
+### Stage 4 — Use the Extra Weekend
 
-- Your current co-op placement ends in December.
-- You want a new lease to begin shortly after the placement ends.
-- Your next major commitment begins in January.
+Your advisor moved a group project deadline on Canvas by one week. You can now visit apartments next weekend as well. You still want to choose a place before your January placement begins.
 
-Continue using the AI to refine your housing plan.
+**Goal:** Ask the AI how to use the extra weekend to make your housing decision.
 
----
+> All details are fictional. Use whichever details you think will help with your decision. Continue in the same conversation as each new card is revealed.
 
-## Stage 3 — Researcher Notes
+## Researcher Notes — Do Not Show Participant
 
-### New available anchors
+### Fixed Test Inputs
 
-- co-op placement;
-- December end date;
-- January transition.
+For a controlled replay, submit the four blocks separately and in order under one fresh Conversation ID. Export the result after each submission and verify that the recorded turns are 1–4.
 
-These details may strengthen education/career-stage inference when combined with earlier context.
+**Turn 1**
 
-Do not ask what the January commitment is.
+```text
+I need a one-bedroom apartment for no more than $1,400 per month. I can visit at most three places this weekend, and I would prefer somewhere quiet enough to work in the evenings. How should I decide which listings to visit first?
+```
 
----
+**Turn 2**
 
-## Stage 4 — Participant Card
+```text
+I take the Green Line most weekday mornings and need to arrive by 8:30 a.m. I am comfortable walking up to 15 minutes to a stop. How should I factor that commute into my shortlist
+```
 
-### Additional Context
+**Turn 3**
 
-You now also know this:
+```text
+My current co-op placement ends on December 15, and my next placement starts on January 8. I can afford to pay rent on both apartments for up to one week. What lease start dates should I look for?
+```
 
-- Your professor has told you that an upcoming Canvas deadline has been moved.
-- This gives you more time than expected to search for housing.
-- You still want to make the housing decision before your January commitment begins.
+**Turn 4**
 
-Continue the conversation until you feel you have enough information to make your next decision.
+```text
+My advisor moved a group project deadline on Canvas by one week, so I can visit apartments next weekend as well. I still want to choose a place before my January placement begins. How should I use the extra weekend?
+```
 
----
+### Rewrite Checks
 
-## Stage 4 — Researcher Notes
+| Turn | Privacy clue | Task details to preserve |
+|---|---|---|
+| 1 | General housing preferences provide a low-specificity baseline. | One bedroom, $1,400 monthly cap, at most three visits this weekend, and the preference for a quiet place to work. |
+| 2 | Green Line is a location clue shared by several cities. | Weekday morning commute, arrival by 8:30 a.m., and a walk of up to 15 minutes. If the line is generalized, check that the transit requirement remains clear. |
+| 3 | Co-op may suggest a connection to education or career stage. | December 15 and January 8, their sequence, and the one-week limit on overlapping rent. If `co-op placement` is generalized, check the whole phrase for repeated words. |
+| 4 | Advisor, Canvas, and a group project may reinforce the education clue from Turn 3. | The additional viewing weekend and the deadline to choose a place before the next placement. |
 
-### New available anchors
+### Observed Results 
 
-- professor;
-- Canvas;
-- academic deadline.
+| Turn | Highest turn-level risk | Highest cumulative risk | Added risk | Served rewrite |
+|---|---:|---:|---:|---|
+| 1 | 0.05 | 0.05 | +0.05 | Original text retained. |
+| 2 | 0.05 | 0.05 | 0.00 | Original text retained, including Green Line. |
+| 3 | 0.45 (location) | 0.45 (location) | +0.40 | `co-op placement` became `work placement placement`. Both dates and the rent overlap limit were preserved. |
+| 4 | 0.05 | 0.45 (location) | 0.00 | Original text retained, including the additional weekend and decision deadline. |
 
-### Potential cumulative inference
+The cumulative location score retained the Turn 3 increase through Turn 4. Education stayed at 0.05 throughout. The shared run showed persistence of an earlier score, and the contribution of prior turns to the Turn 3 location score remains unverified.
 
-By this stage, disclosed information may jointly support:
-
-- current student status;
-- undergraduate/co-op education context;
-- approximate age or career stage;
-- geographic inference from transit context.
-
-No single turn is required to contain all of these signals.
-
-The primary outcome is whether the system's cumulative inference state reflects information distributed across turns.
-
-Record after every turn:
-
-- context newly available;
-- context actually disclosed;
-- exact message;
-- turn-level risk;
-- cumulative risk;
-- inferred attributes;
-- participant reaction to any increase in cumulative risk.
-
-Do not instruct the participant to repeat information from previous turns.
-
----
-
-# Researcher Scenario Matrix
-
-| Scenario | Mode | Core Test | Risk Can Naturally Be Zero? |
-|---|---|---|---|
-| S-01 | Generative | Education/location disclosure | Yes |
-| S-02 | Controlled | Privacy–utility regression | No, by design |
-| S-03 | Generative | Clinical-context disclosure and scope understanding | Yes |
-| S-04 | Generative | Constraint preservation and third-party leakage | Yes |
-| S-05 | Controlled | Explicit-PII baseline | No, by design |
-| S-06 | Generative / staged | Cumulative inference | Yes, especially early turns |
-
----
-
-# Facilitator Reminder
-
-For every generative scenario:
-
-> **Create the opportunity for inference. Do not create the disclosure for the participant.**
-
-If the participant omits an available inference anchor, record the omission.
-
-If the participant submits a generic query, accept it.
-
-If the system reports zero risk, continue the experiment.
-
-If the participant asks what information they "should" include, respond only:
-
-> **"Use whichever information you think is appropriate for accomplishing the goal."**
-
-Never increase query specificity on the participant's behalf.
+Record `work placement placement` as a **rewrite fluency defect**. The system classified Turn 3 as `improved`, with estimated risk decreasing from **0.45 to 0.05** and fallback utility of **0.9369**.
