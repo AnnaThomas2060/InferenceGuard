@@ -524,6 +524,23 @@ Record one JSON object per participant per scenario.
 
   "time_to_decision_seconds": 41,
   "comments": ""
+
+  "pre_result": {
+    "send_decision": "send_as_written | edit_first | do_not_send | unsure",
+    "decision_reason": "",
+    "privacy_response_verbatim": "",
+    "perceived_private_details": [],
+    "wants_privacy_rewrite": "yes | no | unsure",
+    "rewrite_reason": ""
+  },
+  "post_result": {
+    "final_choice": "original | suggestion | edited_version | neither",
+    "choice_reason": "",
+    "remaining_privacy_concerns": "",
+    "task_details_removed_or_changed": "",
+    "edited_from": null,
+    "edited_query": null
+  }
 }
 ```
 
