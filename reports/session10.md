@@ -85,7 +85,32 @@ Session 05:
 | | measured on | validation macro F1 | macro ROC-AUC | per attribute |
 |---|---|---:|---:|---|
 | ModernBERT-base (149M) | 45 held-out profiles, seed 42 | 0.461 | 0.853 | occ 0.618 / edu 0.534 / loc 0.462 / age 0.232 |
-| RoBERTa-base (125M) — **now serving** | not scored | — | — | — |
+| RoBERTa-base (125M) — **now serving** | same 45 profiles, 1,416 comments | **0.019** | **0.453** | occ 0.000 / edu 0.000 / loc 0.076 / age 0.000 |
+
+**Scored on 2026-11-10 (Engineering, see below): the hosted RoBERTa is untrained, and `main` could not load
+it anyway.** `python scripts/score_risk_model.py` (val split, the same labels and metric functions as Session 05,
+same positive counts 83/56/281/146), output in `artifacts/risk_eval/inferenceguard-roberta-risk_val_2026-11-10.json`:
+
+| | macro F1 | macro PR-AUC | macro ROC-AUC | per-attribute ROC-AUC (age / loc / occ / edu) |
+|---|---:|---:|---:|---|
+| ModernBERT-base, Session 05 | 0.461 | 0.457 | 0.853 | 0.753 / 0.907 / 0.870 / 0.883 |
+| RoBERTa `AT707/InferenceGuard-Roberta-Risk` @ `8273bc7c` | 0.019 | 0.101 | **0.453** | 0.390 / 0.388 / 0.567 / 0.466 |
+
+- **The published weights were never trained.** 198 of 199 backbone tensors are byte-identical to plain
+  `roberta-base`, and the one that differs is the randomly initialised pooler. The final head weights have std 0.029–0.030, which is PyTorch's default
+  initialisation for that layer (1/√384/√3 ≈ 0.0295). Every validation comment gets nearly the same score
+  (for example age 0.475–0.483). The upload script loaded weights with `strict=False`, which ignores keys that do
+  not match, and published regardless.
+- **`main` was not serving even those weights.** `RobertaRiskClassifier` never called `post_init()`, so
+  `from_pretrained` raised on transformers 5.20.1 and 5.22.2 (which `transformers>=4.40.0` resolves to today), and
+  `load_risk_classifier` silently built a **1-layer RoBERTa with random heads**. Only 5 of 219 checkpoint tensors loaded.
+- **So until a trained checkpoint is published, the container's risk scores are noise.** ModernBERT remains the
+  only risk model we have measured, and its checkpoint is not hosted.
+- **Band calibration (this week's plan item) ran, and found nothing to calibrate.** `src/product/thresholds.py`
+  marks all four per-attribute fits degraded and not usable, because no threshold reaches 60% precision. The served
+  0.40/0.70 edges in `calibrate.py` put **every** validation comment in MEDIUM for every attribute: 0% LOW, 0% HIGH.
+  The bands need re-fitting once a trained model is served. Note also that the served edges (0.40/0.70) differ from
+  the documented ones (0.30/0.60 in `risk_bands.py`, the model card and the UI).
 
 **We have no accuracy number for the model in the container.** The hosting checks in the
 table above verify that the weights load and the heads have the right shape; they do not
@@ -104,7 +129,7 @@ the cheapest item on next week's list and should come before any further hosting
 **No, and this is the week that changed.**
 
 - **Risk classifier:** the product serves RoBERTa-base from the Hub; our published metrics
-  are ModernBERT-base from Session 05. Unscored, as above.
+  are ModernBERT-base from Session 05. Now scored, as above: untrained, macro ROC-AUC 0.453.
 - **Rewriter:** the product serves `AT707/inferenceguard-rewriter-v1` (1.54B). The Session 09
   provenance work registered a **0.5B** student adapter, and
   `scripts/check_eval_readiness.py` still reports `BLOCKED` on the 0.5B-versus-1.5B
@@ -145,7 +170,20 @@ All tests executed cleanly on the current branch (`88-hosting-and-containerizati
 ## Individual contributions
 
 - **Chatur Bandaru (Engineering):**
-  - [To be filled by Chatur]
+  - **Scored the risk classifier the product serves (`scripts/score_risk_model.py`).** It uses the same 45 validation
+    profiles, labels and metric functions as Session 05, and fails closed: it refuses random weights, a
+    heuristic fallback, and the test split. Result: macro ROC-AUC **0.453** against ModernBERT's 0.853. The
+    published RoBERTa is `roberta-base` with untrained heads (evidence above).
+  - **Fixed the loader that served a random model.** Added the missing `post_init()` in
+    `src/risk_model/roberta_model.py`: on transformers 5.20.1 and 5.22.2 the product had silently loaded a 1-layer
+    RoBERTa with random heads (5/219 tensors). It now loads 219/219 and 12 layers. The loader's fallback to an
+    untrained model now logs an error instead of being silent.
+  - **Made the upload script refuse to publish an untrained model** (`scripts/host_roberta_on_hf.py`). It now
+    requires a checkpoint, and stops when the checkpoint's keys don't cover the heads and encoder.
+  - **Ran band calibration** with `src/product/thresholds.py` on the served model's validation scores. It's recorded
+    in the artifact and reported as not meaningful until a trained model is served.
+  - 9 offline tests in `tests/test_served_risk_model.py`. The three loader tests fail on `main` and pass with the fix.
+  - (evidence: this week's Engineering PR, `artifacts/risk_eval/inferenceguard-roberta-risk_val_2026-11-10.json`)
 
 - **Govind Arun (Product):**
   - [To be filled by Govind]

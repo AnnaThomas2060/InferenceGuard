@@ -7,6 +7,7 @@ Provides input embedding hooks for Integrated Gradients and temperature scaling.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -384,7 +385,14 @@ def load_risk_classifier(
         if hasattr(model, "to"):
             model = model.to(device)
         return model
-    except Exception:
+    except Exception as exc:
+        # This fallback builds an untrained model. It used to be silent, and
+        # the product served random heads without anyone noticing (Session 10).
+        logging.getLogger(__name__).error(
+            "Could not load risk classifier '%s' (%s: %s). Falling back to an UNTRAINED "
+            "RobertaRiskClassifier: risk scores from it are not meaningful.",
+            model_name_or_path, type(exc).__name__, exc,
+        )
         from src.risk_model.roberta_model import RobertaRiskClassifier, RobertaRiskConfig
         config = RobertaRiskConfig(base_model_name=model_name_or_path)
         model = RobertaRiskClassifier(config=config)
