@@ -177,7 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
     $("capacity").textContent = typeof capacity === "number" ? number(capacity)+" / 4" : "Not available";
     $("leakage").textContent = typeof turn.leakage_delta === "number" ? (turn.leakage_delta >= 0 ? "+" : "")+number(turn.leakage_delta) : "Not available";
     for (const [id, key] of [["util-cosine","cosine_similarity"],["util-forward","nli_forward"],["util-backward","nli_backward"],["util-composite","utility_score"]]) $(id).textContent = number(utility[key],4);
-    $("utility-method").textContent = utility.utility_backend === "model" ? "Method: model-based similarity and entailment evaluation." : utility.utility_backend === "fallback" ? "Method: fallback evaluation. One or more components use lexical heuristics rather than the full model evaluation." : "Evaluation method was not reported; model-based scoring is not assumed.";
+    $("utility-method").textContent = utility.utility_backend === "model" ? "These scores come from models that compare the two versions. Check the wording for important changes." : utility.utility_backend === "fallback" ? "Some scores use simple text checks that can miss changes in meaning. Compare both versions before using the suggestion." : "The scoring method is unavailable. Compare both versions to check for changes in meaning.";
     const engines = {qwen_adapter:"Qwen adapter",heuristic:"rule-based rewriting",presidio_fallback:"baseline masking fallback",passthrough_low_risk:"original text retained"};
     $("rewrite-method").textContent = "Served rewrite method: " + (engines[data.rewrite_engine] || "not reported") + ".";
     $("empty").hidden = true; $("results").hidden = false; updateStale();
