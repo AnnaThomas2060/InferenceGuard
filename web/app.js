@@ -1,4 +1,59 @@
 "use strict";
+
+function getRewriteDiff(original, suggested) {
+  const tokenize = text => text.match(/\s+|[\p{L}\p{M}\p{N}_]+(?:['’][\p{L}\p{M}\p{N}_]+)*|[^\s]/gu) || [];
+  const before = tokenize(original);
+  const after = tokenize(suggested);
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) {
+    start++;
+  }
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (beforeEnd > start && afterEnd > start && before[beforeEnd - 1] === after[afterEnd - 1]) {
+    beforeEnd--;
+    afterEnd--;
+  }
+
+  const rows = beforeEnd - start + 1;
+  const columns = afterEnd - start + 1;
+  // Bound the work on long messages so the results page remains responsive.
+  if (rows * columns > 250_000) return null;
+
+  const matches = new Uint16Array(rows * columns);
+  for (let i = rows - 2; i >= 0; i--) {
+    for (let j = columns - 2; j >= 0; j--) {
+      const cell = i * columns + j;
+      matches[cell] = before[start + i] === after[start + j]
+        ? 1 + matches[cell + columns + 1]
+        : Math.max(matches[cell + columns], matches[cell + 1]);
+    }
+  }
+
+  const diff = [];
+  function append(kind, text) {
+    if (!text) return;
+    const previous = diff[diff.length - 1];
+    if (previous?.kind === kind) previous.text += text;
+    else diff.push({kind, text});
+  }
+  append("same", before.slice(0, start).join(""));
+  let i = 0;
+  let j = 0;
+  while (i < rows - 1 || j < columns - 1) {
+    if (i < rows - 1 && j < columns - 1 && before[start + i] === after[start + j]) {
+      append("same", before[start + i++]);
+      j++;
+    } else if (i < rows - 1 && (j === columns - 1 || matches[(i + 1) * columns + j] >= matches[i * columns + j + 1])) {
+      append("removed", before[start + i++]);
+    } else {
+      append("added", after[start + j++]);
+    }
+  }
+  append("same", before.slice(beforeEnd).join(""));
+  return diff;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const $ = id => document.getElementById(id);
   const attributes = ["age", "location", "occupation", "education"];
@@ -37,6 +92,60 @@ document.addEventListener("DOMContentLoaded", () => {
     $("analyze-btn").textContent = value ? "Checking your message…" : "Check my message";
     $("results").setAttribute("aria-busy", String(value)); updateStale();
   }
+  function renderComparison() {
+    const original = latest.input_text;
+    const suggested = $("suggested-text").value;
+    const beforePane = $("original-display");
+    const afterPane = $("suggested-display");
+    const description = $("change-description");
+    const legend = $("change-legend");
+
+    legend.hidden = true;
+    beforePane.textContent = original;
+    afterPane.textContent = suggested;
+    if (original === suggested) {
+      description.textContent = "The suggested text is unchanged.";
+      return;
+    }
+
+    const diff = getRewriteDiff(original, suggested);
+    if (!diff) {
+      description.textContent = "The text changed. This comparison is too long to highlight individual changes.";
+      return;
+    }
+
+    beforePane.replaceChildren();
+    afterPane.replaceChildren();
+    for (const {kind, text} of diff) {
+      if (kind === "same") {
+        beforePane.append(text);
+        afterPane.append(text);
+      } else {
+        const removed = kind === "removed";
+        const change = document.createElement(removed ? "del" : "ins");
+        change.className = removed ? "rewrite-removed" : "rewrite-added";
+        change.textContent = text;
+        (removed ? beforePane : afterPane).append(change);
+      }
+    }
+    legend.hidden = false;
+    description.textContent = "Review the highlighted wording changes and the protection outcome below.";
+  }
+
+  function setEditing(active) {
+    $("suggested-text").hidden = !active;
+    $("suggested-display").hidden = active;
+    $("edit-btn").textContent = active ? "Finish editing" : "Edit suggested text";
+    if (active) {
+      $("original-display").textContent = latest.input_text;
+      $("change-legend").hidden = true;
+      $("change-description").textContent = "Select Finish editing to compare your changes.";
+      $("suggested-text").focus();
+    } else {
+      renderComparison();
+    }
+  }
+
   function render(data) {
     const comparison = data.comparison || {}, risk = data.risk_summary || {}, turn = data.turn_record || {}, utility = data.utility_metrics || {};
     const outcome = outcomes[data.verdict || comparison.verdict] || ["Protection outcome is unavailable.", "Review the text; a changed message alone does not establish improved protection.", "caution"];
@@ -58,12 +167,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const value = document.createElement("span"); value.className = "attr-number"; value.textContent = valid ? number(score) : "—";
       row.append(name, track, category, value); $("attribute-bars").append(row);
     }
-    $("original-display").textContent = latest.input_text;
     $("suggested-text").value = data.rewritten_text;
-    $("suggested-text").readOnly = true; edited = false; $("edit-note").hidden = true; $("check-edit-btn").hidden = true;
+    edited = false; $("edit-note").hidden = true; $("check-edit-btn").hidden = true;
     $("action-status").textContent = "";
-    const changed = latest.input_text.replace(/\s+/g, " ").trim() !== data.rewritten_text.replace(/\s+/g, " ").trim();
-    $("change-description").textContent = changed ? "The wording changed. Review both versions for missing or altered details; a wording change alone is not proof of protection." : "The suggested text is unchanged. No different wording was provided.";
+    setEditing(false);
     $("pseudonym-display").textContent = data.pseudonymized_text || "Separate pseudonymization output is unavailable. The baseline is not a substitute for a persistent-alias result.";
     $("presidio-display").textContent = typeof data.presidio_text === "string" ? data.presidio_text : "Baseline output is unavailable.";
     const capacity = turn.residual_anonymity_capacity ?? turn.joint_entropy;
@@ -98,13 +205,23 @@ document.addEventListener("DOMContentLoaded", () => {
   for (const id of ["text-input","session-id"]) $(id).addEventListener("input", updateStale);
   $("sample-btn").addEventListener("click", () => { $("text-input").value = "My manager keeps giving client-facing assignments to colleagues with master's degrees. I have been on the team for seven years and train new staff, but I do not have a postgraduate degree. How can I raise this fairly?"; updateStale(); $("text-input").focus(); });
   $("new-session").addEventListener("click", () => { $("session-id").value = newId(); message(""); updateStale(); });
-  $("edit-btn").addEventListener("click", () => { $("suggested-text").readOnly = false; $("suggested-text").focus(); });
-  $("suggested-text").addEventListener("input", () => { edited = true; $("edit-note").hidden = false; $("check-edit-btn").hidden = false; $("action-status").textContent = ""; });
+  $("edit-btn").addEventListener("click", () => setEditing($("suggested-text").hidden));
+  $("suggested-text").addEventListener("input", () => {
+    edited = $("suggested-text").value !== latest.response.rewritten_text;
+    $("edit-note").hidden = !edited;
+    $("check-edit-btn").hidden = !edited;
+    $("action-status").textContent = "";
+  });
   $("check-edit-btn").addEventListener("click", () => { $("text-input").value = $("suggested-text").value; updateStale(); analyze(); });
   $("copy-btn").addEventListener("click", async () => {
     if (!latest || isStale() || busy) return;
     try { await navigator.clipboard.writeText($("suggested-text").value); $("action-status").textContent = edited ? "Copied your edited text. It has not been re-evaluated." : "Copied. Review the text before sharing."; }
-    catch (_) { $("suggested-text").focus(); $("suggested-text").select(); $("action-status").textContent = "Clipboard access is unavailable. The text is selected; use your browser’s Copy command."; }
+    catch (_) {
+      if (busy || isStale()) return;
+      setEditing(true);
+      $("suggested-text").select();
+      $("action-status").textContent = "Clipboard access is unavailable. The text is selected; use your browser’s Copy command.";
+    }
   });
   $("download-btn").addEventListener("click", () => {
     if (!latest) return;
