@@ -138,6 +138,13 @@ class RobertaRiskClassifier(PreTrainedModel if torch is not None else object):
             for i, attr in enumerate(config.attributes)
         })
 
+        # Required by PreTrainedModel. Without it, from_pretrained raises
+        # AttributeError ('all_tied_weights_keys') on transformers 5.20.1,
+        # load_risk_classifier catches that and builds a fresh model, and the
+        # product serves a 1-layer RoBERTa with random heads. Verified to leave
+        # the pretrained roberta-base backbone untouched on a fresh build.
+        self.post_init()
+
     def get_input_embeddings(self) -> Any:
         """Retrieve the word embedding layer from the underlying RoBERTa backbone.
         This layer is required when computing Integrated Gradients for attribute cue attribution.

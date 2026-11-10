@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -86,6 +86,43 @@ print(probs)
 """
 
 
+def load_trained_weights(model: Any, checkpoint_dir: Optional[str]) -> None:
+    """Load fine-tuned weights into `model`, or refuse.
+
+    Session 10: AT707/InferenceGuard-Roberta-Risk was published as plain
+    roberta-base (198/199 backbone tensors byte-identical) with heads still at
+    their PyTorch default initialisation. This function used to be inline,
+    loaded with strict=False (which ignores every key that does not match),
+    logged "Loaded custom weights" either way, and uploaded whatever it had.
+    Now a missing checkpoint, an unreadable one, or one whose keys do not
+    cover the heads and the encoder stops the upload.
+    """
+    if not checkpoint_dir:
+        raise ValueError("--checkpoint-dir is required: refusing to publish an untrained risk classifier")
+    ckpt_p = Path(checkpoint_dir)
+    weights = next((ckpt_p / n for n in ("model.safetensors", "pytorch_model.bin", "model.pt")
+                    if (ckpt_p / n).exists()), None)
+    if weights is None:
+        raise FileNotFoundError(f"no model.safetensors, pytorch_model.bin or model.pt in {ckpt_p}")
+    if weights.suffix == ".safetensors":
+        from safetensors.torch import load_file
+        state_dict = load_file(str(weights))
+    else:
+        state_dict = torch.load(weights, map_location="cpu")
+
+    result = model.load_state_dict(state_dict, strict=False)
+    missing = [k for k in result.missing_keys if not k.startswith("roberta.pooler.")]
+    missing_heads = [k for k in missing if k.startswith("heads.")]
+    missing_encoder = [k for k in missing if k.startswith("roberta.")]
+    if missing_heads or missing_encoder:
+        raise RuntimeError(
+            f"{weights} does not match RobertaRiskClassifier: {len(missing_heads)} head and "
+            f"{len(missing_encoder)} encoder tensors missing (e.g. {missing[:3]}); "
+            f"{len(result.unexpected_keys)} unexpected (e.g. {list(result.unexpected_keys)[:3]})"
+        )
+    logger.info("Loaded fine-tuned weights from %s (%d tensors)", weights, len(state_dict))
+
+
 def package_and_upload(
     output_dir: str,
     repo_id: str,
@@ -116,29 +153,7 @@ def package_and_upload(
     logger.info("Initializing model architecture...")
     if torch is not None:
         model = RobertaRiskClassifier(config=config)
-        if checkpoint_dir:
-            ckpt_p = Path(checkpoint_dir)
-            loaded = False
-            for w_name in ["model.safetensors", "pytorch_model.bin", "model.pt"]:
-                if (ckpt_p / w_name).exists():
-                    try:
-                        if w_name.endswith(".safetensors"):
-                            from safetensors.torch import load_file
-                            state_dict = load_file(str(ckpt_p / w_name))
-                        else:
-                            state_dict = torch.load(ckpt_p / w_name, map_location="cpu")
-                        model.load_state_dict(state_dict, strict=False)
-                        logger.info("Loaded custom weights from %s/%s", checkpoint_dir, w_name)
-                        loaded = True
-                        break
-                    except Exception as exc:
-                        logger.warning("Failed loading %s: %s", w_name, exc)
-            if not loaded and hasattr(RobertaRiskClassifier, "from_pretrained"):
-                try:
-                    model = RobertaRiskClassifier.from_pretrained(checkpoint_dir)
-                    logger.info("Loaded custom weights via from_pretrained(%s)", checkpoint_dir)
-                except Exception:
-                    pass
+        load_trained_weights(model, checkpoint_dir)
         if hasattr(model, "save_pretrained"):
             try:
                 model.save_pretrained(out_path)
