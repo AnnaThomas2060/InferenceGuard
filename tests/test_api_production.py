@@ -1,3 +1,9 @@
+
+import pytest
+
+# Guard above the heavy imports so this reports as skipped rather than
+# failing collection on a machine without the stack. See tests/README.md.
+pytest.importorskip("fastapi", reason="needs optional fastapi; see tests/README.md")
 """Integration tests for production FastAPI endpoints in InferenceGuard.
 These tests verify health checks, readiness probes, and request payload validation.
 TestClient executes requests against the application without starting a live web server."""

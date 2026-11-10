@@ -1,3 +1,9 @@
+
+import pytest
+
+# Guard above the heavy imports so this reports as skipped rather than
+# failing collection on a machine without the stack. See tests/README.md.
+pytest.importorskip("torch", reason="needs optional torch; see tests/README.md")
 """Unit tests for the multi-task RoBERTa risk classifier architecture and configuration.
 These tests verify that configuration parameters, forward output shapes, and temperature scaling operate as expected.
 Mock objects are used to ensure tests execute cleanly in environments without GPU acceleration."""
