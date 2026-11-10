@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>InferenceGuard — Review before you share</title>
   <link rel="stylesheet" href="style.css?v=rewrite-diff-v1">
-  <script src="app.js?v=rewrite-diff-v1" defer></script>
+  <script src="app.js?v=plain-evaluation-v1" defer></script>
 </head>
 <body>
 <div class="app-layout">
@@ -81,19 +81,19 @@
 
       <section class="card">
         <details id="detailed-evaluation"><summary>Detailed evaluation · numbers &amp; methods</summary>
-          <p>Message-level scores describe this input. Conversation-level values include earlier turns with the same conversation ID.</p>
+          <p>Some scores describe this message. The first two scores also take earlier messages in this conversation into account.</p>
           <h3>Across this conversation</h3>
           <div class="detail-grid">
-            <div><h4>Remaining privacy capacity</h4><strong id="capacity"></strong><p>Higher means less accumulated exposure across four attributes. Range 0–4; sum of (1 − cumulative attribute risk). Technical name: Residual Anonymity Capacity. This is a heuristic index, not entropy in bits.</p></div>
-            <div><h4>Added risk from this message</h4><strong id="leakage"></strong><p>Increase in the highest cumulative attribute risk since the previous turn. The first turn is compared with zero. Zero does not mean no private information. Technical name: Leakage Delta.</p></div>
+            <div><h4>Privacy across this conversation</h4><strong id="capacity"></strong><p>A higher score means the tool estimates that the conversation has revealed less about your age, location, job, and education.</p></div>
+            <div><h4>How much risk did this message add?</h4><strong id="leakage"></strong><p>This shows how much the highest risk score changed after this message. Zero means that score stayed the same. The first message starts from zero.</p></div>
           </div>
-          <h3>How much meaning was preserved?</h3>
+          <h3>Check the suggested wording</h3>
           <p id="utility-method" class="notice"></p>
           <div class="detail-grid">
-            <div><h4>Text similarity</h4><strong id="util-cosine"></strong><p>Cosine Similarity: higher means more similarity. Similar wording alone does not guarantee key details are preserved.</p></div>
-            <div><h4>Support for rewritten content</h4><strong id="util-forward"></strong><p>Forward NLI: whether the original supports the rewrite. Higher suggests fewer unsupported additions.</p></div>
-            <div><h4>Retention of original details</h4><strong id="util-backward"></strong><p>Backward NLI: whether the rewrite supports the original. Higher suggests fewer details were lost.</p></div>
-            <div><h4>Overall meaning-preservation score</h4><strong id="util-composite"></strong><p>Composite Utility: combines similarity and both NLI directions, penalizing contradiction and degenerate output. Higher is better; it does not measure privacy improvement.</p></div>
+            <div><h4>How similar are the two versions?</h4><strong id="util-cosine"></strong><p>A higher score means the texts are more alike overall. Check important details separately.</p></div>
+            <div><h4>Does the rewrite stick to what you said?</h4><strong id="util-forward"></strong><p>A higher score suggests the rewrite sticks more closely to what the original text says. Check for any new claims.</p></div>
+            <div><h4>Retention of original details</h4><strong id="util-backward"></strong><p>A higher score suggests more of the original details were kept. Check whether the details you need are still there.</p></div>
+            <div><h4>How well did it keep your meaning?</h4><strong id="util-composite"></strong><p>This combines the three checks above. A higher score suggests the rewrite kept more of your meaning. See the risk comparison for privacy changes.</p></div>
           </div>
           <p id="rewrite-method"></p>
           <p class="small">The analysis response does not identify the risk-scoring backend. No model availability is inferred from a score.</p>
