@@ -189,7 +189,10 @@ All tests executed cleanly on the current branch (`88-hosting-and-containerizati
   - **Environment portability and test validation:** Resolved `sys.path` import issues across training and CLI entrypoints for seamless execution in Google Colab, and authored unit tests in `tests/test_hf_loading.py` and `tests/test_api_production.py` with 100% pass rates across the 69-test suite.
 
 - **Yiwei Jin (Users&Research):**
-  - [To be filled by Yiwei]
+  - **Scenario cards** (`docs/product/scenario_cards.md`) — Added details to six scenarios and tested whether rewrites preserved key facts.
+  - **Study protocol** (`docs/experiment_protocol.md`) — Added questions about privacy concerns and rewrite preferences before showing results, then collected feedback on the suggestion.
+  - **Rewrite comparison** (`web/app.js`, `web/index.html`, `web/style.css`) — Highlighted additions, deletions, and replacements.
+  - **Evaluation wording** (`web/index.html`, `web/app.js`) — Simplified metric labels, score explanations, and the scoring notice.
 
 - **Bingqi Lian (Operations):**
   - **Production evidence contract:** Added `configs/production/session10.yaml` to define the evidence required before the deployed system can be treated as production-ready, separating service liveness from model/evaluation readiness.
