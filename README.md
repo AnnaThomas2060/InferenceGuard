@@ -29,7 +29,7 @@ python -m spacy download en_core_web_lg
 
 ## Run It
 
-InferenceGuard is now fully modularized into a robust Python architecture. You can run the entire pipeline—from dataset generation to fine-tuning and launching the live UI—directly from the **`InferenceGuard_finetune.ipynb`** Colab notebook.
+InferenceGuard is now fully modularized into a robust Python architecture. You can run the entire pipeline, from dataset generation to fine-tuning and launching the live UI, directly from a Colab notebook. Use **`InferenceGuard_modernbert_train_and_host.ipynb`** to train the multi-task ModernBERT risk classifier and push it to the Hugging Face Hub; **`InferenceGuard_finetune.ipynb`** covers the broader fine-tuning and UI flow.
 
 ### 0. Get the dataset
 
@@ -47,11 +47,11 @@ function of dataset iteration order as well as the seed, so an unpinned
 download can change the split without anything failing (issue #21).
 
 ### 1. Fine-Tune ModernBERT
-To train the multi-task risk classifier on the SynthPAI dataset, use the module directly:
+To train the multi-task risk classifier, point the trainer at the profile-disjoint splits committed under `data/splits/` (the trainer prefers these automatically when present):
 ```bash
 python -m src.risk_model.train \
-    --data_path data/raw/synthpai.jsonl \
-    --splits_path artifacts/profile_splits.json \
+    --train_data data/splits/train.jsonl \
+    --val_data data/splits/val.jsonl \
     --output_dir artifacts/risk_model \
     --epochs 3
 ```
