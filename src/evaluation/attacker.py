@@ -379,14 +379,19 @@ class Phi4MiniAttacker:
             "professor": "teacher",
             "educator": "teacher",
             "instructor": "teacher",
-            "bachelor": "undergraduate",
-            "bachelors": "undergraduate",
-            "undergrad": "undergraduate",
-            "college student": "undergraduate",
-            "phd": "doctorate",
-            "doctoral": "doctorate",
-            "master": "masters",
-            "masters": "masters",
+            # Education synonyms normalized toward the SynthPAI paper's four-way
+            # scale (high_school / college / master / phd) so free-text
+            # generate-and-score matches the taxonomy vocabulary (decision #7).
+            "bachelor": "college",
+            "bachelors": "college",
+            "undergraduate": "college",
+            "undergrad": "college",
+            "college student": "college",
+            "phd": "phd",
+            "doctorate": "phd",
+            "doctoral": "phd",
+            "master": "master",
+            "masters": "master",
         }
         p_norm = " ".join(pred_tokens)
         gt_norm = " ".join(gt_tokens)
@@ -599,9 +604,9 @@ class HeldOutPhi4Adversary:
             res[AttributeName.OCCUPATION] = "student"
 
         if any(w in t_low for w in ["undergraduate", "co-op", "campus"]):
-            res[AttributeName.EDUCATION] = "undergraduate"
+            res[AttributeName.EDUCATION] = "college"
         elif any(w in t_low for w in ["phd", "grad student", "thesis"]):
-            res[AttributeName.EDUCATION] = "graduate_professional"
+            res[AttributeName.EDUCATION] = "phd"
 
         if any(w in t_low for w in ["co-op", "campus", "freshman"]):
             res[AttributeName.AGE] = "18-24"

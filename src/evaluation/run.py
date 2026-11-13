@@ -256,17 +256,17 @@ def run_comparative_benchmark(
             {
                 "profile_id": "pers1",
                 "text": "I take the Green Line to campus every morning for my undergraduate co-op in Boston.",
-                "attributes": {"age": "18-24", "location": "us_northeast", "occupation": "student", "education": "undergraduate"},
+                "attributes": {"age": "18-24", "location": "us_northeast", "occupation": "student", "education": "college"},
             },
             {
                 "profile_id": "pers2",
                 "text": "Moving to Seattle, WA to start as a software engineer at Amazon, commuting via Sound Transit.",
-                "attributes": {"age": "25-34", "location": "us_west", "occupation": "technology", "education": "undergraduate"},
+                "attributes": {"age": "25-34", "location": "us_west", "occupation": "technology", "education": "college"},
             },
             {
                 "profile_id": "pers3",
                 "text": "Finished my clinical rotation at Massachusetts General Hospital before defending my PhD thesis.",
-                "attributes": {"age": "25-34", "location": "us_northeast", "occupation": "healthcare", "education": "graduate_professional"},
+                "attributes": {"age": "25-34", "location": "us_northeast", "occupation": "healthcare", "education": "phd"},
             },
         ]
 
