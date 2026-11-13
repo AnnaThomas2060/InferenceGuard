@@ -831,6 +831,32 @@ The model ids can also be passed explicitly via `--risk_model_id`,
 `--rewriter_model_id`, and `--adversary_model_id` instead of the environment
 variables.
 
+### Troubleshooting / required Colab dependencies
+
+A real GPU run (for example on Colab) needs the full heavy-model stack. A partial
+install is the most common cause of a non-reportable run.
+
+- **Required pip dependencies:** `transformers`, `torch`, `accelerate`,
+  `bitsandbytes>=0.46.1`, `huggingface_hub`, `sentence-transformers`,
+  `presidio-analyzer`, `spacy`. After installing `spacy`, also download the large
+  English model: `python -m spacy download en_core_web_lg`.
+- **`HF_TOKEN` must be set.** The hosted risk model, the LoRA rewriter, and the
+  Phi-4-mini adversary are all pulled from the Hub. Unauthenticated requests fail
+  or get rate-limited, which can leave a model unloaded and silently degrade the
+  run. Export `HF_TOKEN` (or run `huggingface_hub` login) before launching.
+- **Missing `bitsandbytes` cascades into a non-reportable run.** When
+  `bitsandbytes` is absent, the quantized rewriter AND the Phi-4-mini adversary
+  both silently drop to heuristic mode (`attacker_mode == "heuristic"`). The
+  harness then CORRECTLY raises a `RuntimeError` and refuses to emit a
+  non-reportable number rather than writing a misleading report. The fix is:
+  `pip install -U "bitsandbytes>=0.46.1" accelerate`, set `HF_TOKEN`, then restart
+  the runtime so the heavy models load under GPU.
+- **The strict guard is intended.** The harness raising a `RuntimeError` on any
+  heuristic fallback (under `--use_heavy_models`) is deliberate behavior and must
+  NOT be weakened or bypassed. Emitting a number from a heuristic adversary would
+  violate the held-out evidence requirement; the only correct response is to fix
+  the environment so the real models load.
+
 ### Output files (under `reports/`)
 
 - `comparative_benchmark_test.json`: the per-method matrix plus the top-level
