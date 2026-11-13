@@ -47,6 +47,11 @@ north_star:
 - **Environment and CLI Import Robustness (`scripts/host_roberta_on_hf.py`, `src/risk_model/train.py`, `src/rewriter/train_sft.py`, `src/evaluation/run.py`).**
   Resolved execution issues across Colab and external execution contexts by adding dynamic root path detection to `sys.path`. Scripts can now be run from any working directory without raising `ModuleNotFoundError: No module named 'src'`. Also made `BayesianConversationLeakageTracker` initialization safe by defaulting to standard temperature scaling when an explicit scaler is omitted.
 
+
+- **Production Evidence Gate (`configs/production/session10.yaml`, `scripts/check_production_evidence.py`, `artifacts/production/session10_evidence.json`).**
+  Added an Operations-level production evidence contract that separates service availability from evidence readiness. The gate verifies the configured serving identities, requires explicit Hub revision pins, checks that the risk-model evaluation artifact belongs to the served model/revision, validates whether fitted risk bands are marked production-usable, checks whether rewriter readiness evidence actually covers the served rewriter, and requires a reportable held-out result before production evidence can be marked `READY`. On the current repository state, serving identity and risk evaluation evidence pass, while revision pinning, risk calibration evidence, rewriter evidence, and held-out evidence remain correctly `BLOCKED`.
+
+
 ## Improvement over previous week
 
 In Session 09, our work focused primarily on rewriter dataset hygiene, prompt parity, and diagnosing memorization issues on the local student. However, the system remained locked to local filesystems:
@@ -112,17 +117,7 @@ same positive counts 83/56/281/146), output in `artifacts/risk_eval/inferencegua
   The bands need re-fitting once a trained model is served. Note also that the served edges (0.40/0.70) differ from
   the documented ones (0.30/0.60 in `risk_bands.py`, the model card and the UI).
 
-**We have no accuracy number for the model in the container.** The hosting checks in the
-table above verify that the weights load and the heads have the right shape; they do not
-measure whether it detects anything. `docs/methodology-review.md` finding 2 chose
-ModernBERT over RoBERTa deliberately, on context length and training recency, so this is
-a reversal of a documented decision and the reasoning for it should be written down —
-whether that is latency, hosting simplicity, or something the ModernBERT checkpoint could
-not do. It is plausibly the right call; it is not yet an argued one.
-
-**Until the new classifier is scored on the same 45 held-out profiles, no risk-model
-accuracy figure in this report or the deck applies to what we ship.** That scoring run is
-the cheapest item on next week's list and should come before any further hosting work.
+**We now have an accuracy measurement for the model configured for production, and that evidence shows the hosted checkpoint is not suitable for production risk detection.** The hosting checks verify that the repository exists and the weights can be loaded, while the Session 10 scoring run measures the actual served RoBERTa checkpoint on the same 45 validation profiles used for the earlier ModernBERT comparison. Its macro F1 is 0.019 and macro ROC-AUC is 0.453, and all four fitted risk-band configurations are marked unusable. Until a trained checkpoint is published and re-evaluated, the hosted risk model must not inherit the earlier ModernBERT performance claims.
 
 ### Is this the same model that is running in the product?
 
@@ -130,10 +125,7 @@ the cheapest item on next week's list and should come before any further hosting
 
 - **Risk classifier:** the product serves RoBERTa-base from the Hub; our published metrics
   are ModernBERT-base from Session 05. Now scored, as above: untrained, macro ROC-AUC 0.453.
-- **Rewriter:** the product serves `AT707/inferenceguard-rewriter-v1` (1.54B). The Session 09
-  provenance work registered a **0.5B** student adapter, and
-  `scripts/check_eval_readiness.py` still reports `BLOCKED` on the 0.5B-versus-1.5B
-  mismatch. The hosted 1.54B rewriter has not been through that readiness gate.
+- **Rewriter:** the product serves `AT707/inferenceguard-rewriter-v1` (1.54B). Session 09 explicitly separated the 0.5B local student from the 1.5B quality-ceiling target, so the earlier 0.5B-versus-1.5B ambiguity is no longer the readiness blocker. However, the existing readiness evidence still covers the 0.5B local student rather than the hosted 1.54B production rewriter, and no reportable evaluation artifact is registered for the hosted rewriter.
 - **Held-out adversary:** still not run. The north-star metric remains uncomputed.
 
 ### Test Suite Execution Summary
@@ -161,10 +153,12 @@ All tests executed cleanly on the current branch (`88-hosting-and-containerizati
 - **Bandwidth and weight loading in test runtimes.** The 1.54B rewriter model weighs approximately 3.08 GB on disk. Downloading full weights during standard CI or local unit testing causes high latency. We addressed this by implementing an offline heuristic fallback mode in the rewriter service when running in lightweight CPU test environments.
 - **Readiness contract adherence on local workspaces.** The held-out evaluation checker correctly requires exact registered adapter artifacts. When local checkpoints exist uncommitted on developer machines, status checks can report different results than clean CI clones. We verified that our committed contract artifacts remain fail-closed and clean.
 
+- **Production evidence remains incomplete even when the service is operational.** The Session 10 production evidence gate confirms that the configured risk and rewriter model identities match the deployment configuration, but neither model is pinned to an immutable Hub revision. The evaluated RoBERTa checkpoint has unusable fitted risk bands, the historical rewriter readiness artifact covers a different base model than the hosted 1.54B rewriter, and no reportable held-out production result exists. Production evidence therefore remains `BLOCKED`.
+
 ## Next week's goal
 
 - Deploy the containerized API image to a staging cloud instance and connect the updated web evaluation interface.
-- Run the full held-out evaluation benchmark against the hosted rewriter and risk model checkpoints using the Phi-4 adversary.
+- Publish or select production model checkpoints with immutable Hub revisions, register matching evaluation evidence for the served rewriter, replace the unusable risk checkpoint or its calibration evidence, and only then run the full Phi-4 held-out production evaluation.
 - Complete user testing on the simplified interface with non-technical participants.
 
 ## Individual contributions
@@ -198,7 +192,11 @@ All tests executed cleanly on the current branch (`88-hosting-and-containerizati
   - [To be filled by Yiwei]
 
 - **Bingqi Lian (Operations):**
-  - [To be filled by Bingqi]
+  - **Production evidence contract:** Added `configs/production/session10.yaml` to define the evidence required before the deployed system can be treated as production-ready, separating service liveness from model/evaluation readiness.
+  - **Served-model identity and revision checks:** Added `scripts/check_production_evidence.py` to verify that the risk classifier and rewriter configured in Docker match the production contract and that immutable model revisions are pinned before evidence can pass.
+  - **Evaluation-to-serving provenance:** The gate verifies that the risk evaluation artifact belongs to the served model and revision, checks whether fitted risk bands are explicitly marked usable, and prevents historical readiness evidence for the 0.5B local rewriter from being used as evidence for the hosted 1.54B rewriter.
+  - **Fail-closed production status:** Generated `artifacts/production/session10_evidence.json`. The current repository passes serving identity and risk-evaluation identity checks but remains `BLOCKED` on missing revision pins, unusable risk-band calibration, missing matching rewriter evaluation evidence, and the absence of a reportable Phi-4 held-out production result.
+  - **Regression coverage:** Added deterministic production-evidence tests covering complete READY evidence, missing revision pins, revision mismatch, unusable calibration, rewriter-model mismatch, and missing held-out results. Repository regression completed with 530 passed and 22 skipped after excluding the two pre-existing TRL-dependent collection files in the fresh Colab environment; `git diff --check` was clean.
 
 ## Lean canvas changes (if any)
 
