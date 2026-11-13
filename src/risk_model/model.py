@@ -451,7 +451,6 @@ def _load_multitask_modernbert(
             # declares num_classes_per_head; the current no-sidecar repo is untouched.
             num_classes_per_head = sidecar.get("num_classes_per_head")
             if isinstance(num_classes_per_head, dict):
-                from src.contracts.schemas import AttributeName
                 from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
 
                 expected = {
