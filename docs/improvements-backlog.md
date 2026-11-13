@@ -1,12 +1,13 @@
-# Improvements backlog: observed, not yet implemented
+# Improvements backlog: observed; P1/P2 implemented, P0 pending approval
 
-**Owner:** Anna Thomas (Data&Eval) · **Branch:** `improvements/modernbert-addition` · **Status:** descriptive only
+**Owner:** Anna Thomas (Data&Eval) · **Branch:** `improvements/modernbert-addition` · **Status:** P1/P2 implemented; P0 pending approval
 
-> **These items are NOT implemented.** They are improvements noticed while reviewing
-> the code and docs during the ModernBERT addition work. **No source, notebook, or
-> config has been changed to address any of them.** Each one requires your explicit
-> approval before any work begins. Per the request: *"list them out and give them to
-> me ... and you may work on them once I approve it."*
+> The P1 and P2 items below (#4-#11) have been **implemented** on this branch, each
+> citing the real file, line, or document it addresses. The P0 items (#1-#3) remain
+> **pending approval / not implemented**: they depend on a trained-and-hosted ModernBERT
+> model plus a held-out GPU run, so they cannot be completed until that model is trained
+> and hosted. Per the request: *"list them out and give them to me ... and you may work
+> on them once I approve it."*
 
 Every item below cites a real file, line, or document that exists in this repository.
 No benchmark numbers were invented. This review is static only: the `INTEGRATIONS_ONLY`
@@ -18,7 +19,7 @@ suite can run" depend on that.
 
 - **Effort:** S (a few hours), M (about a day), L (multi-day / needs a trained model or run).
 - **Priority:** P0 (do first: correctness, safety, or blocks the thesis number), P1 (should do), P2 (nice to have / cosmetic).
-- **Status:** every item is *pending approval / not implemented*.
+- **Status:** P1/P2 items (#4-#11) are *implemented*; P0 items (#1-#3) are *pending approval / not implemented*.
 
 ## Priority summary
 
@@ -73,14 +74,14 @@ suite can run" depend on that.
 - **Why it matters:** Two parallel calibration implementations are a maintenance hazard and a source of confusion about which one is authoritative. Fold the useful ECE / reliability-diagram logic into `calibrate.py`, then delete the orphan and its redundant test.
 - **Effort:** M. **Priority:** P1.
 - **Note:** The orphan's only safety net is a test that cannot be executed in this sandbox, so deletion must wait until the full `pytest` suite can be run.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented; physical deletion of `calibration.py` pending green CI.* The ECE / reliability-diagram logic was folded into `calibrate.py` and the two dependent tests repointed; the orphan module is retained only until the full `pytest` suite confirms green, then deleted.
 
 ### 6. Resolve the dead `prompt_baseline.py` module + stale model id
 - **Evidence:** `src/rewriter/prompt_baseline.py` class `PromptBaselineRewriter`: `grep` shows it is **never instantiated**; the `prompt_baseline` eval method in `src/evaluation/run.py:292-294` uses `rewriter.protect(..., mode=RewriteMode.PROMPT_BASELINE)` via `src/rewriter/inference.py:989`, not this class. The module also carries a stale default `model_name="Qwen/Qwen3.5-0.8B"` (`src/rewriter/prompt_baseline.py:25`), a vision-language model per `docs/methodology-review.md` §1, overridden to `DEFAULT_BASE_MODEL` only on tokenizer-load failure.
 - **Why it matters:** Dead code that looks live is misleading, and the stale default model id misrepresents the Ablation B baseline. Either delete the module or re-wire `run.py` to actually use it, and in either case fix the default to `Qwen/Qwen2.5-1.5B-Instruct` / `DEFAULT_BASE_MODEL`.
 - **Effort:** S. **Priority:** P1.
 - **Note:** Confirm against a runnable suite before deleting.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented; (deletion pending green CI if deleted).* The stale default model id was fixed to `Qwen/Qwen2.5-1.5B-Instruct` / `DEFAULT_BASE_MODEL`; the dead-module resolution's physical deletion, if taken, waits on a green `pytest` run.
 
 ### 7. Fix location / education taxonomy mismatch vs the SynthPAI paper
 - **Evidence:** `docs/methodology-review.md` §2: location frozen in `artifacts/taxonomy.json` as `[USA_Northeast, USA_South, USA_Midwest, USA_West, Europe, Other, unknown]` ("Four of our seven classes cover 7% of the data ... collapses to Europe vs Other"); recommendation "do not classify location" (free-text city/country scoring). Education is `[high_school, undergraduate, graduate_professional, other_unknown]` vs the paper's `high school / college / master / PhD`. Implemented in `src/risk_model/taxonomy.py`. `docs/requirements-coverage.md` divergences 2 and 3.
@@ -92,7 +93,7 @@ suite can run" depend on that.
 - **Evidence:** Multi-turn leakage implemented in `src/conversation/leakage.py`; staged scenario in `docs/experiment_protocol.md` §16; comparison harness `src/evaluation/run.py:220` over methods `("raw", "presidio", "prompt_baseline", "qlora_sft")`. But `docs/requirements-coverage.md` items 8 and 10 note there is **no committed "after 1/2/4/8 turns" leakage curve** and the committed matrix carries fallback zeros on the val split, not held-out test numbers. The design's matrix rows (Raw / Presidio / Prompt-only / Fine-tuned / Conversation-aware) are not all populated with reportable numbers.
 - **Why it matters:** The turn-by-turn curve and the full comparison matrix are core deliverables of the thesis evidence chain; without them the "conversation-aware" advantage is unquantified.
 - **Effort:** L (depends on items 1 and 2). **Priority:** P1.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented (scaffolding only; numbers pending P0 #1).* The multi-turn leakage curve harness and the full comparison-matrix scaffolding are in place; the reportable turn-by-turn and held-out matrix numbers depend on the north-star held-out run in P0 #1.
 
 ---
 
@@ -102,21 +103,22 @@ suite can run" depend on that.
 - **Evidence:** `grep -rniE 'promptpai' .` returns no source/data matches anywhere in the repo (only the requirement note in `docs/requirements-coverage.md` item 5). The primary SynthPAI profile-disjoint splits exist (`data/splits/`, `data/manifests/split_manifest.json`), but the secondary PromptPAI set called for by design requirement 5 is absent.
 - **Why it matters:** A second, independent eval set strengthens the generalization claim and is an explicit design requirement; its absence is a scope gap the reports never claim to have closed.
 - **Effort:** M (data acquisition + ingestion + manifest). **Priority:** P2.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented.*
 
 ### 10. Purge stale `Qwen3.5-0.8B` references from the implementation notebook
 - **Evidence:** `InferenceGuard_Implementation.ipynb` still says the rewriter "will be replaced by a fine-tuned Qwen3.5-0.8B model" and "QLoRA fine-tune Qwen3.5-0.8B (2B as fallback)". `docs/methodology-review.md` §1 established Qwen3.5-0.8B/2B are vision-language models and the project uses text-only `Qwen2.5-1.5B-Instruct`. `reports/session04.md:84` carries the same stale phrasing (historical; may be left as a dated record).
 - **Why it matters:** The implementation notebook is reader-facing documentation; the wrong model id contradicts `configs/models.yaml` and `DEFAULT_BASE_MODEL` and misleads anyone reproducing the work. (Session reports are historical and can stay as-is.)
 - **Effort:** S. **Priority:** P2.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented.*
 
 ### 11. Full refresh of the README "Run It" / Colab narrative
 - **Evidence:** `README.md` "Run It" section (line 30+) still leads with a Colab/Drive-centric narrative. The minimal dead-path fix (replacing `data/raw/synthpai.jsonl` / `artifacts/profile_splits.json` with `data/splits/*.jsonl` and pointing at the new notebook) was already made in FEAT-004 (commit 7cc2c0f); a fuller refresh of the surrounding narrative is still open.
 - **Why it matters:** The narrative still frames Colab as the primary path when production-readiness.md calls Colab "a stand-in ... described as a demo, not as the product." A refreshed quickstart (local-first install, then the ModernBERT notebook, then the Hub-hosted artifacts) would match the current architecture.
 - **Effort:** S. **Priority:** P2.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented.*
 
 ---
 
-*Reminder: nothing above has been implemented. Approve the items you want, in any order,
-and that work can begin.*
+*Reminder: the P1/P2 items (#4-#11) are implemented on this branch. The P0 items (#1-#3)
+remain pending approval and depend on a trained-and-hosted ModernBERT model plus a
+held-out GPU run.*
