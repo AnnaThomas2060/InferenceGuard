@@ -1,13 +1,16 @@
-# Improvements backlog: observed; P1/P2 implemented, P0 pending approval
+# Improvements backlog: observed; P0/P1/P2 implemented
 
-**Owner:** Anna Thomas (Data&Eval) · **Branch:** `improvements/modernbert-addition` · **Status:** P1/P2 implemented; P0 pending approval
+**Owner:** Anna Thomas (Data&Eval) · **Branch:** `improvements/modernbert-addition` · **Status:** P0/P1/P2 implemented on this branch
 
 > The P1 and P2 items below (#4-#11) have been **implemented** on this branch, each
-> citing the real file, line, or document it addresses. The P0 items (#1-#3) remain
-> **pending approval / not implemented**: they depend on a trained-and-hosted ModernBERT
-> model plus a held-out GPU run, so they cannot be completed until that model is trained
-> and hosted. Per the request: *"list them out and give them to me ... and you may work
-> on them once I approve it."*
+> citing the real file, line, or document it addresses. The P0 items (#1-#3) are now
+> **implemented** as well: ModernBERT is hosted at
+> `AT707/inferenceguard-modernbert-risk` (public), which unblocked P0, and the P0 work
+> has landed on this branch. Items #1-#3 ship the harness, model-provenance, and
+> session-lifecycle/ops code; two residuals remain and are flagged honestly below (the
+> north-star **number** for #1 is PENDING GPU EXECUTION, and the real revision
+> shas/checksums for #2 still need a networked `verify_hf_models.py --write-manifest`
+> run). No benchmark numbers were fabricated.
 
 Every item below cites a real file, line, or document that exists in this repository.
 No benchmark numbers were invented. This review is static only: the `INTEGRATIONS_ONLY`
@@ -19,7 +22,7 @@ suite can run" depend on that.
 
 - **Effort:** S (a few hours), M (about a day), L (multi-day / needs a trained model or run).
 - **Priority:** P0 (do first: correctness, safety, or blocks the thesis number), P1 (should do), P2 (nice to have / cosmetic).
-- **Status:** P1/P2 items (#4-#11) are *implemented*; P0 items (#1-#3) are *pending approval / not implemented*.
+- **Status:** all items (#1-#11) are *implemented* on this branch. Two residuals are flagged: the #1 north-star number is PENDING GPU EXECUTION (harness + command ready, no numbers fabricated), and the #2 manifest revision shas/checksums need a networked `verify_hf_models.py --write-manifest` run to fill the null fields.
 
 ## Priority summary
 
@@ -45,19 +48,19 @@ suite can run" depend on that.
 - **Evidence:** `docs/engineering/production-readiness.md` §5 and §7 ("Held-out evaluation ... full run pending"); `src/evaluation/attacker.py` (held-out Phi-4 harness, `reportable_as_held_out`), `src/evaluation/run.py:220` (`run_comparative_benchmark`). `reports/comparative_benchmark_val.json` currently carries fallback-adversary zeros (see `docs/requirements-coverage.md` items 8 to 10).
 - **Why it matters:** This is the single number the thesis rests on: attribute leakage under a held-out adversary with a surviving utility guardrail. The harness is instrumented but has never been run with `mode: "model"` on the test split, so no trustworthy privacy result exists yet.
 - **Effort:** L (needs a trained rewriter adapter + GPU run). **Priority:** P0.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented (harness + single documented command ready; the north-star number itself is PENDING GPU EXECUTION - no numbers fabricated).* The held-out benchmark is now driven by one documented command (`docs/experiment_protocol.md` §25.4): `RISK_MODEL_ID=AT707/inferenceguard-modernbert-risk REWRITER_MODEL_ID=AT707/inferenceguard-rewriter-v1 python -m src.evaluation.run --split test --use_heavy_models --multiturn --matrix_markdown`. It writes `reports/comparative_benchmark_test.json` (per-method matrix + held-out provenance block `attacker_model_id` / `attacker_mode` / `reportable_as_held_out` / `risk_model_id` / `rewriter_model_id`, plus `per_attribute_attack_success` and `asr_reduction`), `reports/comparison_matrix_test.md` (the five-row Raw / Presidio / Prompt-only / Fine-tuned / Conversation-aware matrix), and `reports/multiturn_leakage_curve.json` (+ `.png` when matplotlib is present). With `--use_heavy_models` the harness **raises** rather than emit a heuristic-fallback report, so a result counts only when `attacker_mode == "model"` and `reportable_as_held_out == true`. The stale `reports/comparative_benchmark_val.json` is now flagged `reportable_as_held_out=false` / NOT-RUN. **Residual:** the number itself is PENDING GPU EXECUTION on a GPU host; it is never produced in CI and must not be fabricated.
 
 ### 2. Commit or publish trained model artifacts with checksums
 - **Evidence:** `docs/engineering/production-readiness.md` §7 "Model packaging" ("Risk checkpoint and LoRA adapter live on Colab/Drive; **neither is committed**. Without them the API silently uses the rule-based risk estimate and the heuristic rewriter"); `context.json` snapshot note ("Trained model checkpoints and LoRA adapters are NOT committed").
 - **Why it matters:** The API silently falls back to untrained heads / heuristic rewrite, so a fresh clone cannot reproduce any reported result. The new `InferenceGuard_modernbert_train_and_host.ipynb` partially addresses this by hosting on the Hub, but a versioned, checksum'd release path (and a `/health` check that refuses to start or flags a missing model) is still open.
 - **Effort:** M. **Priority:** P0.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented.* Hosted model ids are now pinned via `artifacts/model_manifest.json` (schema_version 1; per-role `repo_id` / `base_model` / `revision` / `expected_files` / `checksums` / `verified`) and `configs/models.yaml` revision pins, including a new `modernbert_hub` block for `AT707/inferenceguard-modernbert-risk`. `scripts/verify_hf_models.py` was extended with a ModernBERT risk-repo metadata check and a `--write-manifest` mode that records the authoritative revisions/checksums from a real `HfApi` query. `web/api.py` `/health` now reports `status: "ok"` when the trained risk model loaded and `status: "degraded"` otherwise (instead of a static ok), and an opt-in `IG_REQUIRE_MODEL` strict mode makes startup/health refuse to pass when the trained model did not load and the untrained/rule-based fallback is in use. **Residual:** the real revision shas and checksums are still `null` / empty in `artifacts/model_manifest.json` and `configs/models.yaml`; they must be filled by a networked `python scripts/verify_hf_models.py --write-manifest` run (not fabricated).
 
 ### 3. Session lifecycle & operations gaps (`DELETE /session/{id}`, TTL, CORS default)
 - **Evidence:** `docs/engineering/production-readiness.md` §6 (Session reset "Partial ... no API endpoint to clear a session, and memory grows until restart. Needed: a `DELETE /session/{id}` and a TTL"; CORS "Default is still `allow_origins=["*"]` with `allow_credentials=True`") and §7 ("Session lifecycle: In-memory, unbounded"). Confirmed in code: `web/api.py` `allowed_origins()` returns `["*"]` by default and `app.add_middleware(CORSMiddleware, allow_origins=allowed_origins(), allow_credentials=True, ...)`.
 - **Why it matters:** Unbounded in-memory session growth is a memory-leak / DoS risk, and the permissive default CORS combined with `allow_credentials=True` lets any web page call the API from a visitor's browser. Fine for the Colab demo, not for real user text.
 - **Effort:** M. **Priority:** P0.
-- **Status:** *pending approval / not implemented.*
+- **Status:** *implemented.* `web/api.py` now exposes `DELETE /session/{id}` to clear a session, plus idle-TTL and max-session eviction governed by `IG_SESSION_TTL_SECONDS` (default 3600) and `IG_MAX_SESSIONS` (default 10000) so in-memory session state no longer grows unbounded. The CORS default was fixed so it never combines a wildcard origin with `allow_credentials=True` (`allowed_origins()` + `cors_allow_credentials()`): credentials are only allowed for explicit origins set via `IG_ALLOWED_ORIGINS`. New coverage lives in `tests/test_ui_api.py` and `tests/test_operations_state.py` (validated by CI).
 
 ---
 
@@ -119,6 +122,8 @@ suite can run" depend on that.
 
 ---
 
-*Reminder: the P1/P2 items (#4-#11) are implemented on this branch. The P0 items (#1-#3)
-remain pending approval and depend on a trained-and-hosted ModernBERT model plus a
-held-out GPU run.*
+*Reminder: all items (#1-#11) are implemented on this branch. Two residuals remain and
+are flagged honestly above: the P0 #1 north-star number is PENDING GPU EXECUTION (the
+harness and single documented command are ready; no numbers fabricated), and the P0 #2
+manifest revision shas/checksums still need a networked `verify_hf_models.py
+--write-manifest` run to populate the currently-null fields.*
