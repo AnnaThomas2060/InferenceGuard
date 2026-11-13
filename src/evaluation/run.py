@@ -12,6 +12,7 @@ import argparse
 import gc
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -26,6 +27,15 @@ from src.evaluation.presidio_baseline import PresidioBaseline
 from src.evaluation.utility import UtilityEvaluator
 
 logger = logging.getLogger(__name__)
+
+# Hosted model ids for the north-star held-out benchmark. The risk scorer
+# defaults to the hosted ModernBERT checkpoint (configs/models.yaml
+# risk_estimator.chosen = answerdotai/ModernBERT-base, hosted at the id below);
+# load_risk_classifier auto-detects RoBERTa vs ModernBERT so the serving path
+# (web/api.py / scripts/score_risk_model.py default to RoBERTa) is untouched.
+DEFAULT_RISK_MODEL_ID = "AT707/inferenceguard-modernbert-risk"
+DEFAULT_REWRITER_MODEL_ID = "AT707/inferenceguard-rewriter-v1"
+DEFAULT_ADVERSARY_MODEL_ID = "microsoft/Phi-4-mini-instruct"
 
 
 def clean_gpu_memory() -> None:
@@ -231,6 +241,9 @@ def run_comparative_benchmark(
     include_conversation_aware: bool = False,
     multiturn_input_file: Optional[str] = None,
     use_heavy_models: bool = False,
+    risk_model_id: Optional[str] = None,
+    rewriter_model_id: Optional[str] = None,
+    adversary_model_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute the comparative evaluation benchmark across privacy-preserving methods.
 
@@ -241,6 +254,19 @@ def run_comparative_benchmark(
     command produces the full five-row matrix. No metric values are fabricated;
     the conversation-aware row carries the reportable flags from the multi-turn
     harness.
+
+    Model wiring: ``risk_model_id`` / ``rewriter_model_id`` / ``adversary_model_id``
+    default (in order) to the explicit argument, the corresponding environment
+    variable (``RISK_MODEL_ID`` / ``REWRITER_MODEL_ID`` / ``ADVERSARY_MODEL_ID``),
+    then the hosted ids (ModernBERT risk, rewriter v1, Phi-4-mini adversary).
+
+    When ``use_heavy_models=True`` the held-out adversary, the rewriter, and the
+    calibrated ModernBERT risk predictor are actually loaded, and the function
+    RAISES if the adversary resolves to ``mode == 'heuristic'`` (i.e. the real
+    model failed to load) rather than writing a report that could be mistaken for
+    held-out results. When ``use_heavy_models=False`` the existing
+    ``load_model=False`` fallback is kept and every payload is flagged
+    ``reportable_as_held_out = False``. No metric values are ever fabricated.
     """
     from src.contracts.schemas import AttributeName, ConversationState, RewriteMode
     from src.conversation.entity_map import DeterministicPseudonymManager
@@ -248,6 +274,14 @@ def run_comparative_benchmark(
     from src.evaluation.privacy_metrics import compute_method_metrics
     from src.evaluation.utility_metrics import BidirectionalUtilityEvaluator
     from src.rewriter.inference import QwenPrivacyRewriterService
+
+    risk_model_id = risk_model_id or os.getenv("RISK_MODEL_ID") or DEFAULT_RISK_MODEL_ID
+    rewriter_model_id = (
+        rewriter_model_id or os.getenv("REWRITER_MODEL_ID") or DEFAULT_REWRITER_MODEL_ID
+    )
+    adversary_model_id = (
+        adversary_model_id or os.getenv("ADVERSARY_MODEL_ID") or DEFAULT_ADVERSARY_MODEL_ID
+    )
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -283,9 +317,40 @@ def run_comparative_benchmark(
         ]
 
     pseudonym_mgr = DeterministicPseudonymManager()
-    utility_eval = BidirectionalUtilityEvaluator(load_models=False)
-    adversary = HeldOutPhi4Adversary(load_model=False)
-    rewriter = QwenPrivacyRewriterService()
+    utility_eval = BidirectionalUtilityEvaluator(load_models=use_heavy_models)
+    adversary = HeldOutPhi4Adversary(
+        model_name=adversary_model_id,
+        load_model=use_heavy_models,
+    )
+    # Wire the risk predictor only in the heavy-model path; the comparative
+    # harness does not consume it directly today, but loading it here asserts the
+    # chosen ModernBERT checkpoint is reachable and records it in the provenance
+    # block. load_risk_classifier auto-detects RoBERTa vs ModernBERT.
+    risk_predictor = None
+    if use_heavy_models:
+        from src.risk_model.predict import CalibratedRiskPredictor
+
+        risk_predictor = CalibratedRiskPredictor.from_pretrained(risk_model_id)
+        rewriter = QwenPrivacyRewriterService(
+            base_model_name=rewriter_model_id,
+            load_model=True,
+        )
+    else:
+        rewriter = QwenPrivacyRewriterService(base_model_name=rewriter_model_id)
+
+    attacker_mode = getattr(adversary, "mode", "heuristic")
+    # Strict held-out gate: a real-model run that silently fell back to the
+    # heuristic must NOT emit a report that could be mistaken for held-out
+    # results. Fail loudly instead.
+    if use_heavy_models and attacker_mode != "model":
+        raise RuntimeError(
+            "use_heavy_models=True but the held-out adversary "
+            f"'{adversary_model_id}' resolved to mode='{attacker_mode}' "
+            "(the real model did not load). Refusing to write a "
+            "non-reportable report masquerading as a held-out run. Ensure the "
+            "GPU host has the adversary weights available and transformers/torch "
+            "installed."
+        )
 
     comparative_results: Dict[str, Any] = {}
 
@@ -342,11 +407,58 @@ def run_comparative_benchmark(
         )
         comparative_results[method] = metrics
 
+    # Per-attribute attack-success matrix across methods and an ASR-reduction
+    # block measuring each method against the "raw" baseline. Values are taken
+    # verbatim from compute_method_metrics (per_attribute.attack_accuracy and
+    # overall_attack_success_rate); nothing is fabricated.
+    per_attribute_asr: Dict[str, Dict[str, float]] = {}
+    for method, metrics in comparative_results.items():
+        per_attribute_asr[method] = {
+            attr: vals.get("attack_accuracy", 0.0)
+            for attr, vals in metrics.get("per_attribute", {}).items()
+        }
+
+    asr_reduction: Dict[str, Any] = {}
+    raw_metrics = comparative_results.get("raw")
+    if raw_metrics is not None:
+        raw_overall = raw_metrics.get("overall_attack_success_rate", 0.0)
+        raw_per_attr = per_attribute_asr.get("raw", {})
+        for method, metrics in comparative_results.items():
+            if method == "raw":
+                continue
+            method_overall = metrics.get("overall_attack_success_rate", 0.0)
+            per_attr_delta = {
+                attr: round(raw_per_attr.get(attr, 0.0) - val, 4)
+                for attr, val in per_attribute_asr.get(method, {}).items()
+            }
+            asr_reduction[method] = {
+                "overall_asr_reduction_vs_raw": round(raw_overall - method_overall, 4),
+                "per_attribute_asr_reduction_vs_raw": per_attr_delta,
+            }
+
+    reportable_as_held_out = attacker_mode == "model"
     benchmark_payload = {
         "split": split,
         "sample_count": len(records),
+        # Held-out provenance: only mode=='model' may be reported as a held-out
+        # adversary number. In the load_model=False fallback this is False.
+        "attacker_model_id": adversary_model_id,
+        "attacker_mode": attacker_mode,
+        "reportable_as_held_out": reportable_as_held_out,
+        "risk_model_id": risk_model_id,
+        "rewriter_model_id": rewriter_model_id,
+        "risk_model_loaded": risk_predictor is not None,
         "methods": comparative_results,
+        "per_attribute_attack_success": per_attribute_asr,
+        "asr_reduction": asr_reduction,
     }
+    if not reportable_as_held_out:
+        benchmark_payload["note"] = (
+            "attacker_mode='heuristic': the held-out Phi-4-mini adversary did not "
+            "load, so these numbers are NON-REPORTABLE as held-out results and are "
+            "pending the GPU run of P0 #1. Run with --use_heavy_models on a GPU "
+            "host to produce a reportable benchmark."
+        )
 
     # Conversation-aware matrix row: wire the multi-turn cumulative leakage
     # tracker result in so that all five design-matrix rows (Raw / Presidio /
@@ -416,6 +528,33 @@ def main() -> None:
         action="store_true",
         help="Also write the per-method comparison matrix as a markdown table",
     )
+    parser.add_argument(
+        "--risk_model_id",
+        type=str,
+        default=None,
+        help=(
+            "Risk scorer id (defaults to $RISK_MODEL_ID or the hosted ModernBERT "
+            f"'{DEFAULT_RISK_MODEL_ID}')"
+        ),
+    )
+    parser.add_argument(
+        "--rewriter_model_id",
+        type=str,
+        default=None,
+        help=(
+            "Rewriter id (defaults to $REWRITER_MODEL_ID or the hosted "
+            f"'{DEFAULT_REWRITER_MODEL_ID}')"
+        ),
+    )
+    parser.add_argument(
+        "--adversary_model_id",
+        type=str,
+        default=None,
+        help=(
+            "Held-out adversary id (defaults to $ADVERSARY_MODEL_ID or "
+            f"'{DEFAULT_ADVERSARY_MODEL_ID}')"
+        ),
+    )
     args = parser.parse_args()
 
     # --dataset promptpai selects the synthetic PromptPAI eval file as input,
@@ -425,6 +564,11 @@ def main() -> None:
         input_file = "data/promptpai/sample.jsonl"
 
     print(f"Executing comparative benchmark on split '{args.split}' (dataset={args.dataset}) for methods: {args.methods}")
+    if args.use_heavy_models:
+        print(
+            "  Heavy-model (held-out) path: will FAIL rather than emit a "
+            "non-reportable report if the adversary does not load."
+        )
     results = run_comparative_benchmark(
         split=args.split,
         methods=args.methods,
@@ -434,6 +578,9 @@ def main() -> None:
         include_conversation_aware=args.multiturn,
         multiturn_input_file=args.multiturn_input,
         use_heavy_models=args.use_heavy_models,
+        risk_model_id=args.risk_model_id,
+        rewriter_model_id=args.rewriter_model_id,
+        adversary_model_id=args.adversary_model_id,
     )
     print("\n" + "=" * 78)
     print(f"{'Method':<18} | {'Attacker Acc (v)':<16} | {'Abstain % (^)':<13} | {'Bi-NLI (^)':<11} | {'p95 Lat (ms)':<12}")
@@ -446,6 +593,17 @@ def main() -> None:
             f"{data['p95_latency_ms']:<12.2f}"
         )
     print("=" * 78)
+    held_out = results.get("reportable_as_held_out", False)
+    print(
+        f"attacker_model_id={results.get('attacker_model_id')} "
+        f"attacker_mode={results.get('attacker_mode')} "
+        f"reportable_as_held_out={held_out}"
+    )
+    if not held_out:
+        print(
+            "  NOTE: this run is NON-REPORTABLE as a held-out result (pending the "
+            "GPU run of P0 #1). Re-run with --use_heavy_models on a GPU host."
+        )
 
     if args.multiturn:
         ca = results.get("conversation_aware", {})
@@ -493,31 +651,55 @@ def write_matrix_markdown(results: Dict[str, Any], output_dir: str) -> str:
         "prompt_baseline": "Prompt-only",
         "qlora_sft": "Fine-tuned",
     }
+    # The per-method rows share the benchmark's held-out reportability: only a
+    # mode=='model' run counts. The conversation-aware row carries its own flag
+    # from the multi-turn payload.
+    benchmark_reportable = results.get("reportable_as_held_out", False)
+    asr_reduction = results.get("asr_reduction", {})
     lines = [
         f"# Comparison matrix (split={results.get('split')}, n={results.get('sample_count')})",
         "",
-        "| Row | Attacker Acc | Abstain % | Bi-NLI | p95 Lat (ms) | Reportable |",
-        "| --- | --- | --- | --- | --- | --- |",
+        f"- attacker_model_id: `{results.get('attacker_model_id')}`",
+        f"- attacker_mode: `{results.get('attacker_mode')}`",
+        f"- reportable_as_held_out: `{benchmark_reportable}`",
+        f"- risk_model_id: `{results.get('risk_model_id')}`",
+        f"- rewriter_model_id: `{results.get('rewriter_model_id')}`",
+        "",
+        "| Row | Attacker Acc | ASR reduction vs Raw | Abstain % | Bi-NLI | p95 Lat (ms) | Reportable |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for method, data in results.get("methods", {}).items():
         label = row_labels.get(method, method)
+        if method == "raw":
+            reduction_cell = "-"
+        else:
+            reduction = asr_reduction.get(method, {}).get("overall_asr_reduction_vs_raw")
+            reduction_cell = f"{reduction:.4f}" if reduction is not None else "-"
         lines.append(
             f"| {label} | {data['overall_attack_success_rate']:.4f} | "
+            f"{reduction_cell} | "
             f"{data['overall_attacker_abstention_rate']:.4f} | "
             f"{data['mean_bidirectional_entailment']:.4f} | "
-            f"{data['p95_latency_ms']:.2f} | n/a |"
+            f"{data['p95_latency_ms']:.2f} | {benchmark_reportable} |"
         )
     ca = results.get("conversation_aware")
     if ca is not None:
         reportable = ca.get("reportable_as_held_out", False)
         status = "pending P0 #1 (non-reportable)" if not reportable else "reportable"
-        lines.append(f"| Conversation-aware | {status} | - | - | - | {reportable} |")
+        lines.append(f"| Conversation-aware | {status} | - | - | - | - | {reportable} |")
     lines.append("")
-    lines.append(
-        "> Numbers are pending the north-star GPU run (P0 #1: trained ModernBERT "
-        "risk model + LoRA adapter + held-out Phi-4-mini adversary). Rows produced "
-        "in load_model=False fallback are not reportable as held-out results."
-    )
+    if not benchmark_reportable:
+        lines.append(
+            "> Numbers are pending the north-star GPU run (P0 #1: trained ModernBERT "
+            "risk model + LoRA adapter + held-out Phi-4-mini adversary). Rows produced "
+            "in the load_model=False fallback (attacker_mode != 'model') are NOT "
+            "reportable as held-out results."
+        )
+    else:
+        lines.append(
+            "> Held-out run: attacker_mode='model' / reportable_as_held_out=true. "
+            "Numbers are the real held-out Phi-4-mini adversary results."
+        )
     md_path = out_path / f"comparison_matrix_{results.get('split')}.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

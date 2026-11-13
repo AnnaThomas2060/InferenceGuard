@@ -791,5 +791,63 @@ record shape `{profile_id, text, attributes}`):
 python -m src.evaluation.run --dataset promptpai --multiturn --matrix_markdown
 ```
 
+## 25.4 North-star held-out leakage benchmark (P0 #1)
+
+This is the thesis deliverable: the per-attribute attribute-leakage / attack-success
+number under the **held-out** Phi-4-mini adversary, with the hosted ModernBERT risk
+model and the hosted LoRA rewriter actually loaded. It is produced by a **single
+command on a GPU host** and is an extension of the Evidence Requirements
+(section 21): a benchmark result only counts when `attacker_mode == "model"` and
+`reportable_as_held_out == true`.
+
+> **The number itself is PENDING GPU EXECUTION.** It is not produced in the
+> CPU/CI environment and must never be fabricated. A run whose adversary falls
+> back to the heuristic (`attacker_mode == "heuristic"`) is NON-REPORTABLE; the
+> harness raises instead of writing such a report when `--use_heavy_models` is
+> set. For the number to count as held-out evidence, the written payload must
+> carry `attacker_mode: "model"` and `reportable_as_held_out: true`.
+
+### Required environment (GPU host)
+
+- `RISK_MODEL_ID=AT707/inferenceguard-modernbert-risk`: the hosted ModernBERT
+  risk model (configs/models.yaml `risk_estimator.chosen = answerdotai/ModernBERT-base`).
+  `load_risk_classifier` auto-detects ModernBERT vs RoBERTa, so this does not
+  disturb the RoBERTa serving default in `web/api.py` / `scripts/score_risk_model.py`.
+- `REWRITER_MODEL_ID=AT707/inferenceguard-rewriter-v1`: the hosted LoRA rewriter.
+- Held-out adversary: `microsoft/Phi-4-mini-instruct` (the `--adversary_model_id`
+  default; different vendor / tokenizer / pretraining from the rewriter, so it is
+  never used to select rewrites or tune thresholds).
+- `transformers`, `torch`, and `huggingface_hub` installed with GPU access.
+
+### The single command
+
+```bash
+RISK_MODEL_ID=AT707/inferenceguard-modernbert-risk \
+REWRITER_MODEL_ID=AT707/inferenceguard-rewriter-v1 \
+python -m src.evaluation.run --split test --use_heavy_models --multiturn --matrix_markdown
+```
+
+The model ids can also be passed explicitly via `--risk_model_id`,
+`--rewriter_model_id`, and `--adversary_model_id` instead of the environment
+variables.
+
+### Output files (under `reports/`)
+
+- `comparative_benchmark_test.json`: the per-method matrix plus the top-level
+  held-out provenance block (`attacker_model_id`, `attacker_mode`,
+  `reportable_as_held_out`, `risk_model_id`, `rewriter_model_id`), the
+  `per_attribute_attack_success` matrix, and the `asr_reduction` block (each
+  method vs the Raw baseline, overall and per attribute).
+- `comparison_matrix_test.md`: the five-row matrix (Raw / Presidio / Prompt-only /
+  Fine-tuned / Conversation-aware) with the per-row reportable flag.
+- `multiturn_leakage_curve.json` (+ `.png` when matplotlib is present): the
+  1/2/4/8-turn cumulative leakage curve driving the Conversation-aware row.
+
+The result counts as the north-star held-out number only when
+`comparative_benchmark_test.json` reports `attacker_mode: "model"` and
+`reportable_as_held_out: true`. Until the GPU run is executed and these files are
+committed with those flags true, the north-star number remains **PENDING GPU
+EXECUTION** and no value may be reported.
+
 
 
