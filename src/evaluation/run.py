@@ -228,8 +228,20 @@ def run_comparative_benchmark(
     input_file: Optional[str] = None,
     output_dir: str = "reports",
     limit: Optional[int] = None,
+    include_conversation_aware: bool = False,
+    multiturn_input_file: Optional[str] = None,
+    use_heavy_models: bool = False,
 ) -> Dict[str, Any]:
-    """Execute four-way comparative evaluation benchmark across privacy-preserving methods."""
+    """Execute the comparative evaluation benchmark across privacy-preserving methods.
+
+    The four per-sample methods (raw / presidio / prompt_baseline / qlora_sft)
+    map to the design-matrix rows Raw / Presidio / Prompt-only / Fine-tuned. Set
+    ``include_conversation_aware=True`` to additionally attach the
+    Conversation-aware row (driven by the multi-turn leakage tracker) so a single
+    command produces the full five-row matrix. No metric values are fabricated;
+    the conversation-aware row carries the reportable flags from the multi-turn
+    harness.
+    """
     from src.contracts.schemas import AttributeName, ConversationState, RewriteMode
     from src.conversation.entity_map import DeterministicPseudonymManager
     from src.evaluation.attacker import HeldOutPhi4Adversary
@@ -336,6 +348,37 @@ def run_comparative_benchmark(
         "methods": comparative_results,
     }
 
+    # Conversation-aware matrix row: wire the multi-turn cumulative leakage
+    # tracker result in so that all five design-matrix rows (Raw / Presidio /
+    # Prompt-only / Fine-tuned / Conversation-aware) are produced by one command.
+    # Numbers are whatever the leakage harness actually computed; in the
+    # load_model=False fallback they are tagged non-reportable, never fabricated.
+    if include_conversation_aware:
+        try:
+            from src.evaluation.multiturn import run_multiturn_leakage_curve
+
+            mt_payload = run_multiturn_leakage_curve(
+                input_file=multiturn_input_file,
+                use_heavy_models=use_heavy_models,
+                output_dir=output_dir,
+            )
+            benchmark_payload["conversation_aware"] = {
+                "attacker_mode": mt_payload.get("attacker_mode"),
+                "reportable_as_held_out": mt_payload.get("reportable_as_held_out", False),
+                "tracker_available": mt_payload.get("tracker_available", False),
+                "turn_counts": mt_payload.get("turn_counts", []),
+                "note": mt_payload.get("note"),
+                "multiturn_report": "multiturn_leakage_curve.json",
+                "profiles": mt_payload.get("profiles", []),
+            }
+        except Exception as exc:  # pragma: no cover - heavy deps optional
+            logger.warning("Conversation-aware row unavailable: %s", exc)
+            benchmark_payload["conversation_aware"] = {
+                "reportable_as_held_out": False,
+                "tracker_available": False,
+                "error": str(exc),
+            }
+
     report_file = out_path / f"comparative_benchmark_{split}.json"
     with open(report_file, "w", encoding="utf-8") as f:
         json.dump(benchmark_payload, f, indent=2)
@@ -351,15 +394,46 @@ def main() -> None:
     parser.add_argument("--methods", nargs="+", default=["raw", "presidio", "prompt_baseline", "qlora_sft"], help="Methods to compare")
     parser.add_argument("--limit", "--max_samples", type=int, default=None, dest="limit", help="Max samples to evaluate")
     parser.add_argument("--use_heavy_models", action="store_true", help="Load heavy models; fail instead of falling back")
+    parser.add_argument(
+        "--dataset",
+        choices=["splits", "promptpai"],
+        default="splits",
+        help="Eval input source: committed splits (default) or the synthetic PromptPAI sample",
+    )
+    parser.add_argument(
+        "--multiturn",
+        action="store_true",
+        help="Also emit the multi-turn 1/2/4/8-turn leakage curve and the Conversation-aware matrix row",
+    )
+    parser.add_argument(
+        "--multiturn_input",
+        type=str,
+        default=None,
+        help="Optional staged turns JSONL for the multi-turn curve (defaults to data/evaluation/staged_turns_sample.jsonl)",
+    )
+    parser.add_argument(
+        "--matrix_markdown",
+        action="store_true",
+        help="Also write the per-method comparison matrix as a markdown table",
+    )
     args = parser.parse_args()
 
-    print(f"Executing 4-way comparative benchmark on split '{args.split}' for methods: {args.methods}")
+    # --dataset promptpai selects the synthetic PromptPAI eval file as input,
+    # unless an explicit --input_file was already given.
+    input_file = args.input_file
+    if args.dataset == "promptpai" and not input_file:
+        input_file = "data/promptpai/sample.jsonl"
+
+    print(f"Executing comparative benchmark on split '{args.split}' (dataset={args.dataset}) for methods: {args.methods}")
     results = run_comparative_benchmark(
         split=args.split,
         methods=args.methods,
-        input_file=args.input_file,
+        input_file=input_file,
         output_dir=args.output_dir,
         limit=args.limit,
+        include_conversation_aware=args.multiturn,
+        multiturn_input_file=args.multiturn_input,
+        use_heavy_models=args.use_heavy_models,
     )
     print("\n" + "=" * 78)
     print(f"{'Method':<18} | {'Attacker Acc (v)':<16} | {'Abstain % (^)':<13} | {'Bi-NLI (^)':<11} | {'p95 Lat (ms)':<12}")
@@ -372,6 +446,82 @@ def main() -> None:
             f"{data['p95_latency_ms']:<12.2f}"
         )
     print("=" * 78)
+
+    if args.multiturn:
+        ca = results.get("conversation_aware", {})
+        reportable = ca.get("reportable_as_held_out", False)
+        print(
+            "Conversation-aware row attached (attacker_mode="
+            f"{ca.get('attacker_mode')}, reportable_as_held_out={reportable}). "
+            "See reports/multiturn_leakage_curve.json."
+        )
+        if not reportable:
+            print("  NOTE: conversation-aware leakage numbers are NON-REPORTABLE until P0 #1.")
+        # Attempt to render the curve PNG; degrades gracefully if matplotlib absent.
+        try:
+            from src.evaluation.multiturn import render_multiturn_curve
+
+            mt_report_path = Path(args.output_dir) / "multiturn_leakage_curve.json"
+            if mt_report_path.exists():
+                with open(mt_report_path, "r", encoding="utf-8") as f:
+                    mt_payload = json.load(f)
+                render_res = render_multiturn_curve(mt_payload, output_dir=args.output_dir)
+                if render_res.get("png_written"):
+                    print(f"  Curve PNG: {render_res['png_path']}")
+                else:
+                    print(f"  Curve PNG skipped: {render_res.get('reason')}")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Curve rendering skipped: %s", exc)
+
+    if args.matrix_markdown:
+        md_path = write_matrix_markdown(results, args.output_dir)
+        print(f"Matrix markdown written to {md_path}")
+
+
+def write_matrix_markdown(results: Dict[str, Any], output_dir: str) -> str:
+    """Write the comparison matrix as a markdown table.
+
+    Only values actually computed by the harness are written; the
+    Conversation-aware row reports its reportable flag rather than a fabricated
+    accuracy number.
+    """
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    row_labels = {
+        "raw": "Raw",
+        "presidio": "Presidio",
+        "prompt_baseline": "Prompt-only",
+        "qlora_sft": "Fine-tuned",
+    }
+    lines = [
+        f"# Comparison matrix (split={results.get('split')}, n={results.get('sample_count')})",
+        "",
+        "| Row | Attacker Acc | Abstain % | Bi-NLI | p95 Lat (ms) | Reportable |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for method, data in results.get("methods", {}).items():
+        label = row_labels.get(method, method)
+        lines.append(
+            f"| {label} | {data['overall_attack_success_rate']:.4f} | "
+            f"{data['overall_attacker_abstention_rate']:.4f} | "
+            f"{data['mean_bidirectional_entailment']:.4f} | "
+            f"{data['p95_latency_ms']:.2f} | n/a |"
+        )
+    ca = results.get("conversation_aware")
+    if ca is not None:
+        reportable = ca.get("reportable_as_held_out", False)
+        status = "pending P0 #1 (non-reportable)" if not reportable else "reportable"
+        lines.append(f"| Conversation-aware | {status} | - | - | - | {reportable} |")
+    lines.append("")
+    lines.append(
+        "> Numbers are pending the north-star GPU run (P0 #1: trained ModernBERT "
+        "risk model + LoRA adapter + held-out Phi-4-mini adversary). Rows produced "
+        "in load_model=False fallback are not reportable as held-out results."
+    )
+    md_path = out_path / f"comparison_matrix_{results.get('split')}.md"
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return str(md_path)
 
 
 if __name__ == "__main__":

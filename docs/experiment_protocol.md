@@ -712,5 +712,84 @@ The system then demonstrates intervention or deliberate non-intervention.
 
 Both outcomes are valid experimental evidence.
 
+---
+
+# 25. Automated Evaluation Harness — Run Commands
+
+This section documents the single commands that produce the quantitative
+evaluation artifacts (backlog items #8 and #9). All commands run from the repo
+root with the project environment (CPU torch + `requirements-ci.txt`) installed.
+
+> **Numbers are pending P0 #1 (the north-star GPU run).** Until a trained
+> ModernBERT risk model, the LoRA rewriter adapter, and the held-out Phi-4-mini
+> adversary are available, every harness below runs in `load_model=False`
+> fallback mode and tags its output `reportable_as_held_out = false`. The
+> harness never fabricates leakage or attack-success numbers; non-model runs are
+> explicitly non-reportable.
+
+## 25.1 Full comparison matrix + multi-turn leakage curve
+
+One command produces all five design-matrix rows (Raw / Presidio / Prompt-only /
+Fine-tuned / Conversation-aware) and the 1/2/4/8-turn cumulative leakage curve:
+
+```bash
+python -m src.evaluation.run --split test --multiturn --matrix_markdown --use_heavy_models
+```
+
+Outputs (under `reports/`):
+
+- `comparative_benchmark_test.json` — per-method matrix plus the
+  `conversation_aware` section (driven by the multi-turn leakage tracker).
+- `comparison_matrix_test.md` — the matrix as a markdown table.
+- `multiturn_leakage_curve.json` — cumulative leakage + per-attribute risk at
+  turn counts 1/2/4/8 (clamped to the available staged turns).
+- `multiturn_leakage_curve.png` — rendered curve, written only when matplotlib
+  is installed; the JSON is always written.
+
+Omit `--use_heavy_models` to run the fallback locally without GPU models (the
+outputs are then non-reportable, as flagged in each file).
+
+## 25.2 Multi-turn curve only
+
+The multi-turn leakage curve drives the S-06 staged protocol (section 16) over
+cumulative 1/2/4/8-turn prefixes of a committed staged sample
+(`data/evaluation/staged_turns_sample.jsonl`). To regenerate it on its own:
+
+```bash
+python -c "from src.evaluation.multiturn import run_multiturn_leakage_curve as r; r(use_heavy_models=True)"
+```
+
+## 25.3 PromptPAI secondary evaluation set (#9)
+
+The synthetic PromptPAI set is a secondary, AI-assistant-prompt-style evaluation
+input deterministically derived from the committed synthetic SynthPAI profiles
+(no downloads, no real data). A small sample is committed under
+`data/promptpai/sample.jsonl` with `data/promptpai/manifest_sample.json`.
+
+Generate the full 300-500 row set (seeded, deterministic):
+
+```bash
+python src/data/promptpai.py --source_split test --num_rows 400 \
+    --out data/promptpai/promptpai.jsonl --manifest data/promptpai/manifest.json
+```
+
+Re-generate the committed small sample:
+
+```bash
+python src/data/promptpai.py --sample --source_split test
+```
+
+> Run the generator via the file path (`python src/data/promptpai.py ...`) rather
+> than `-m src.data.promptpai`; the latter imports `src/data/__init__.py`, which
+> pulls `numpy`. The generator itself is stdlib-only (json, hashlib, random,
+> pathlib) so it runs in restricted environments.
+
+Evaluate any method against the PromptPAI set (records already match the harness
+record shape `{profile_id, text, attributes}`):
+
+```bash
+python -m src.evaluation.run --dataset promptpai --multiturn --matrix_markdown
+```
+
 
 
