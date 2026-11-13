@@ -188,6 +188,58 @@ def test_explicit_pii_veto_enforced():
     assert comp.hard_pii_remaining == 1
 
 
+def test_api_delete_session_clears_state_and_is_idempotent(client):
+    """Verify DELETE /session/{id} clears tracked state and is idempotent."""
+    from web.api import conversation_tracker
+
+    session_id = "delete_flow_session"
+    # Create session state via /analyze.
+    resp = client.post(
+        "/analyze",
+        json={
+            "text": "I am 26 years old living in Denver, CO and working as a software engineer.",
+            "session_id": session_id,
+        },
+    )
+    assert resp.status_code == 200
+    assert conversation_tracker.get_history(session_id)
+
+    # First DELETE clears present state.
+    resp = client.delete(f"/session/{session_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {"session_id": session_id, "cleared": True}
+    assert conversation_tracker.get_history(session_id) == []
+
+    # Second DELETE is idempotent: still 200 with cleared False.
+    resp = client.delete(f"/session/{session_id}")
+    assert resp.status_code == 200
+    assert resp.json() == {"session_id": session_id, "cleared": False}
+
+
+def test_api_delete_unknown_session_idempotent(client):
+    """Verify DELETE /session/{id} returns 200 cleared=False for an unknown session."""
+    resp = client.delete("/session/never_created_session")
+    assert resp.status_code == 200
+    assert resp.json() == {"session_id": "never_created_session", "cleared": False}
+
+
+def test_cors_allow_credentials_rule():
+    """Verify wildcard origins disable credentials while explicit origins allow them."""
+    from web.api import cors_allow_credentials
+
+    # Wildcard (demo convenience default) -> no credentialed wildcard.
+    assert cors_allow_credentials(["*"]) is False
+    assert cors_allow_credentials([]) is False
+    assert cors_allow_credentials(["https://ok.example", "*"]) is False
+
+    # Explicit allow-list -> credentials permitted.
+    assert cors_allow_credentials(["https://app.example.com"]) is True
+    assert cors_allow_credentials(
+        ["https://app.example.com", "https://admin.example.com"]
+    ) is True
+
+
 def test_no_literal_030_threshold_floats_in_web_api():
     """Verify that no literal 0.30 floats remain in web/api.py."""
     import re

@@ -60,23 +60,57 @@ app = FastAPI(title="InferenceGuard API", version="1.0.0")
 def allowed_origins() -> List[str]:
     """CORS origins from IG_ALLOWED_ORIGINS (comma-separated).
 
-    Defaults to "*" so the Colab + tunnel demo keeps working. That default,
-    combined with allow_credentials=True, lets any web page call this API
-    from a visitor's browser; set IG_ALLOWED_ORIGINS for anything beyond a
-    class demo. See docs/engineering/production-readiness.md.
+    Defaults to "*" so the Colab + tunnel demo keeps working. The wildcard
+    default is NOT combined with credentialed requests (see
+    cors_allow_credentials); set IG_ALLOWED_ORIGINS to explicit origins for
+    anything beyond a class demo. See docs/engineering/production-readiness.md.
     """
     raw = os.environ.get("IG_ALLOWED_ORIGINS", "*")
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     return origins or ["*"]
 
 
+def cors_allow_credentials(origins: List[str]) -> bool:
+    """Decide whether CORS credentials may be allowed for the given origins.
+
+    Browsers reject ``Access-Control-Allow-Origin: *`` together with
+    ``Access-Control-Allow-Credentials: true``, and allowing both would also
+    let any site make credentialed calls. So credentials are permitted ONLY
+    when ``origins`` is an explicit allow-list; a wildcard (``['*']``, or an
+    empty/falsey value that resolves to wildcard) yields ``False``. This keeps
+    the ``*`` convenience default working for the unauthenticated Colab demo,
+    just without credentialed wildcard.
+    """
+    if not origins:
+        return False
+    if any(o == "*" for o in origins):
+        return False
+    return True
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins(),
-    allow_credentials=True,
+    allow_credentials=cors_allow_credentials(allowed_origins()),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def session_ttl_seconds() -> int:
+    """Idle session TTL in seconds from IG_SESSION_TTL_SECONDS (default 3600)."""
+    try:
+        return int(os.environ.get("IG_SESSION_TTL_SECONDS", "3600"))
+    except (TypeError, ValueError):
+        return 3600
+
+
+def max_sessions() -> int:
+    """Max retained in-memory sessions from IG_MAX_SESSIONS (default 10000)."""
+    try:
+        return int(os.environ.get("IG_MAX_SESSIONS", "10000"))
+    except (TypeError, ValueError):
+        return 10000
 
 def make_risk_estimator(model: Any, tokenizer: Any, device: str) -> Callable[[str], Dict[str, float]]:
     """Wrap a ModernBertRiskClassifier as the text -> scores function the API uses."""
@@ -678,6 +712,15 @@ def analyze_text(request: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
 
     session_id = request.session_id or "default"
+
+    # Reap idle/over-cap sessions on normal traffic so the in-memory tracker
+    # cannot grow unbounded (no background thread; cheap dict scan). Safe when
+    # the env vars are unset thanks to the sane defaults.
+    conversation_tracker.evict_idle(
+        ttl_seconds=session_ttl_seconds(),
+        max_sessions=max_sessions(),
+    )
+
     timings: Dict[str, Optional[float]] = {stage: None for stage in TIMING_STAGES}
     t_total = time.perf_counter()
 
@@ -771,6 +814,19 @@ def rewrite_text(request: RewriteRequest) -> RewriteResponse:
         rewrite_engine=engine,
         rewrite_changed=rewrite_changed(text, rewritten),
     )
+
+
+@app.delete("/session/{session_id}")
+def delete_session(session_id: str) -> Dict[str, Any]:
+    """Clear all tracked state for a conversation session.
+
+    Removes the session's conversation/turn/risk history (and any per-session
+    entity/pseudonym state the tracker holds) via ConversationTracker. The
+    operation is idempotent: it always returns HTTP 200 whether or not the
+    session existed, with ``cleared`` indicating whether state was present.
+    """
+    cleared = conversation_tracker.delete_session(session_id)
+    return {"session_id": session_id, "cleared": cleared}
 
 
 def launch_tunnel(
