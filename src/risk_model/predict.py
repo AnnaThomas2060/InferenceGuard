@@ -98,7 +98,22 @@ class CalibratedRiskPredictor:
                 return AttributeTemperatureScaler()
         thresholds = calibration_params.get("thresholds")
         if isinstance(thresholds, dict):
-            scaler.thresholds = thresholds
+            # Only accept per-attribute entries that are well-formed dicts carrying
+            # BOTH numeric "medium" and "high" keys. A present-but-malformed entry
+            # would otherwise defer a KeyError to predict time (map_to_ui_scale
+            # indexes th["medium"]/th["high"]); keep that attribute's default instead.
+            for attr_key, entry in thresholds.items():
+                if attr_key not in scaler.thresholds:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                medium = entry.get("medium")
+                high = entry.get("high")
+                if isinstance(medium, bool) or isinstance(high, bool):
+                    continue
+                if not isinstance(medium, (int, float)) or not isinstance(high, (int, float)):
+                    continue
+                scaler.thresholds[attr_key] = {"medium": float(medium), "high": float(high)}
         return scaler
 
     def predict(self, text: str) -> RiskReport:

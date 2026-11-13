@@ -428,19 +428,45 @@ def _load_multitask_modernbert(
     resolved_base_model = base_model
     sidecar_path = _resolve_repo_file(model_name_or_path, "multitask_config.json")
     if sidecar_path is not None:
+        sidecar: Optional[Dict[str, Any]] = None
         try:
             with open(sidecar_path, "r", encoding="utf-8") as f:
                 sidecar = json.load(f)
-            resolved_base_model = (
-                sidecar.get("base_model")
-                or sidecar.get("model_name")
-                or resolved_base_model
-            )
         except Exception as exc:
             logging.getLogger(__name__).debug(
                 "Ignoring unreadable multitask_config.json for '%s' (%s: %s).",
                 model_name_or_path, type(exc).__name__, exc,
             )
+            sidecar = None
+        if isinstance(sidecar, dict):
+            resolved_base_model = (
+                sidecar.get("base_model")
+                or sidecar.get("model_name")
+                or resolved_base_model
+            )
+            # Validate declared head sizes against the live taxonomy BEFORE loading
+            # the state dict, so a taxonomy/weights drift surfaces as a named,
+            # actionable error instead of a shape error that the caller swallows
+            # into the untrained fallback. Only validate when the sidecar actually
+            # declares num_classes_per_head; the current no-sidecar repo is untouched.
+            num_classes_per_head = sidecar.get("num_classes_per_head")
+            if isinstance(num_classes_per_head, dict):
+                from src.contracts.schemas import AttributeName
+                from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
+
+                expected = {
+                    attr.value: len(labels)
+                    for attr, labels in ATTRIBUTE_TAXONOMY.items()
+                }
+                for attr_name, sidecar_size in num_classes_per_head.items():
+                    if attr_name in expected and sidecar_size != expected[attr_name]:
+                        raise ValueError(
+                            f"multitask_config.json head size mismatch for "
+                            f"'{attr_name}': sidecar={sidecar_size} but current "
+                            f"ATTRIBUTE_TAXONOMY={expected[attr_name]}; the hosted "
+                            "weights were trained under a different taxonomy - "
+                            "re-align the taxonomy or re-upload"
+                        )
 
     weights_path = _resolve_repo_file(model_name_or_path, "multitask_heads.pt")
     if weights_path is None:

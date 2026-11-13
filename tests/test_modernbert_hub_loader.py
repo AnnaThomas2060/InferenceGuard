@@ -179,6 +179,42 @@ def test_hub_repo_id_routes_to_multitask_branch(multitask_checkpoint, patched_ba
     assert not isinstance(loaded, RobertaRiskClassifier)
 
 
+def test_sidecar_head_size_mismatch_falls_back_loudly(multitask_checkpoint, patched_base_model, caplog):
+    """A multitask_config.json whose num_classes_per_head disagrees with the taxonomy must not silently load.
+
+    Issue #1 (review v1): a taxonomy/weights drift used to degrade to the untrained
+    fallback via a swallowed shape error. The loader now raises a named mismatch
+    inside _load_multitask_modernbert; load_risk_classifier catches it in branch (b)
+    and falls through loudly, logging the taxonomy-mismatch cause. This locks in that
+    the drift is reported rather than masquerading as a loaded model.
+    """
+    import json as _json
+
+    from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
+
+    tmp_path, _ = multitask_checkpoint
+
+    # Declare a wrong head size for exactly one attribute (occupation has 7 labels).
+    occupation = AttributeName.OCCUPATION.value
+    correct = {attr.value: len(labels) for attr, labels in ATTRIBUTE_TAXONOMY.items()}
+    wrong = dict(correct)
+    wrong[occupation] = correct[occupation] + 1
+    (tmp_path / "multitask_config.json").write_text(
+        _json.dumps({"base_model": "answerdotai/ModernBERT-base", "num_classes_per_head": wrong}),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="src.risk_model.model"):
+        loaded = load_risk_classifier(str(tmp_path), device="cpu")
+
+    # Branch (b) raised the named ValueError and fell through: not the multitask model.
+    assert not isinstance(loaded, MultiTaskModernBERTRiskModel)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("head size mismatch" in m for m in messages)
+    assert any(occupation in m for m in messages)
+
+
 def test_unknown_layout_falls_back_loudly(tmp_path, caplog):
     """Test C: an unrecognized/empty layout still hits the loud untrained fallback naming files found."""
     empty_dir = tmp_path / "unknown-layout"
