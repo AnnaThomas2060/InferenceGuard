@@ -14,6 +14,7 @@ falling back.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -454,6 +455,31 @@ def _word_tokens(text: str) -> List[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
 
 
+def _transformers_version_hint(e: Exception) -> str:
+    """Return an actionable hint if ``e`` looks like a transformers-vs-remote-code mismatch.
+
+    Phi-4-mini-instruct's ``modeling_phi3.py`` (run under ``trust_remote_code``)
+    imports symbols from ``transformers.utils`` whose availability changes across
+    transformers releases (e.g. ``LossKwargs`` existed in ~4.46-4.49 and was
+    removed in 5.x). When the load failure is that class of ImportError, point
+    the user at the ``ADVERSARY_REVISION`` lever. Returns ``""`` otherwise.
+    """
+    if not isinstance(e, ImportError):
+        return ""
+    text = str(e)
+    matched = "LossKwargs" in text or ("cannot import name" in text and "transformers" in text)
+    if not matched:
+        return ""
+    return (
+        " This looks like a transformers-vs-remote-code version mismatch: the "
+        "model's remote modeling code imports a transformers symbol not present "
+        "in your installed transformers. Either set the ADVERSARY_REVISION env "
+        "var to a Phi-4-mini-instruct commit whose remote code is compatible "
+        "with your installed transformers, or install a transformers version "
+        "that still provides the symbol."
+    )
+
+
 def _contains_run(haystack: Sequence[str], needle: Sequence[str]) -> bool:
     """True if ``needle`` occurs as a contiguous run of whole tokens in ``haystack``."""
     n = len(needle)
@@ -470,6 +496,7 @@ class HeldOutPhi4Adversary:
         tokenizer: Optional[Any] = None,
         load_model: bool = False,
         strict: bool = False,
+        revision: Optional[str] = None,
     ):
         """Initialize adversary with optional model and tokenizer injection for offline tests.
 
@@ -481,6 +508,15 @@ class HeldOutPhi4Adversary:
         surfaces its true cause (e.g. a ``trust_remote_code`` error, a missing
         ``accelerate`` dependency, or a CUDA OOM) rather than being masked by the
         downstream "resolved to mode='heuristic'" gate.
+
+        ``revision`` pins which hub revision of the model's remote code is
+        executed under ``trust_remote_code=True``. Its effective value is
+        resolved as explicit ``revision`` arg -> ``ADVERSARY_REVISION`` env var
+        -> ``None`` (latest). This lets the user select a
+        Phi-4-mini-instruct commit whose ``modeling_phi3.py`` is compatible with
+        their installed transformers (e.g. one that does not import the
+        ``LossKwargs`` symbol removed in transformers 5.x) without any further
+        code change.
         """
         import torch
         from src.contracts.schemas import AttributeName
@@ -489,20 +525,24 @@ class HeldOutPhi4Adversary:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
         self.strict = strict
+        self.revision = revision if revision is not None else os.getenv("ADVERSARY_REVISION")
 
         if tokenizer is not None:
             self.tokenizer = tokenizer
         elif load_model:
             try:
                 from transformers import AutoTokenizer
-                self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, trust_remote_code=True, revision=self.revision
+                )
             except Exception as e:
                 self.tokenizer = None
+                hint = _transformers_version_hint(e)
                 if self.strict:
                     raise RuntimeError(
-                        f"strict adversary could not load tokenizer for {model_name}: {e}"
+                        f"strict adversary could not load tokenizer for {model_name}: {e}{hint}"
                     ) from e
-                logger.warning(f"Could not load tokenizer for {model_name}: {e}. Operating in heuristic mode.")
+                logger.warning(f"Could not load tokenizer for {model_name}: {e}.{hint} Operating in heuristic mode.")
         else:
             self.tokenizer = None
 
@@ -516,14 +556,16 @@ class HeldOutPhi4Adversary:
                     torch_dtype=torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float32,
                     device_map="auto" if self.device == "cuda" else None,
                     trust_remote_code=True,
+                    revision=self.revision,
                 ).eval()
             except Exception as e:
                 self.model = None
+                hint = _transformers_version_hint(e)
                 if self.strict:
                     raise RuntimeError(
-                        f"strict adversary could not load model {model_name}: {e}"
+                        f"strict adversary could not load model {model_name}: {e}{hint}"
                     ) from e
-                logger.warning(f"Could not load model {model_name}: {e}. Operating in heuristic mode.")
+                logger.warning(f"Could not load model {model_name}: {e}.{hint} Operating in heuristic mode.")
         else:
             self.model = None
 

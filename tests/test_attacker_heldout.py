@@ -140,6 +140,59 @@ def test_heldout_non_strict_load_failure_falls_back_to_heuristic():
     assert adversary.mode == "heuristic"
 
 
+def test_heldout_revision_arg_reaches_from_pretrained():
+    """An explicit ``revision`` must be threaded to both from_pretrained calls."""
+    captured = {}
+
+    def fake_tok(name, **kwargs):
+        captured["tokenizer_revision"] = kwargs.get("revision")
+        return FakeTokenizer()
+
+    def fake_model(name, **kwargs):
+        captured["model_revision"] = kwargs.get("revision")
+        return FakeModel()
+
+    with patch("transformers.AutoTokenizer.from_pretrained", side_effect=fake_tok), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", side_effect=fake_model):
+        adversary = HeldOutPhi4Adversary(
+            model_name="microsoft/Phi-4-mini-instruct",
+            load_model=True,
+            revision="deadbeef",
+        )
+    assert adversary.revision == "deadbeef"
+    assert captured["tokenizer_revision"] == "deadbeef"
+    assert captured["model_revision"] == "deadbeef"
+
+
+def test_heldout_revision_from_env(monkeypatch):
+    """ADVERSARY_REVISION is picked up when no explicit revision is passed."""
+    monkeypatch.setenv("ADVERSARY_REVISION", "env-rev")
+    captured = {}
+
+    def fake_tok(name, **kwargs):
+        captured["tokenizer_revision"] = kwargs.get("revision")
+        return FakeTokenizer()
+
+    def fake_model(name, **kwargs):
+        captured["model_revision"] = kwargs.get("revision")
+        return FakeModel()
+
+    with patch("transformers.AutoTokenizer.from_pretrained", side_effect=fake_tok), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", side_effect=fake_model):
+        adversary = HeldOutPhi4Adversary(model_name="microsoft/Phi-4-mini-instruct", load_model=True)
+    assert adversary.revision == "env-rev"
+    assert captured["tokenizer_revision"] == "env-rev"
+    assert captured["model_revision"] == "env-rev"
+
+
+def test_heldout_strict_hints_at_transformers_mismatch():
+    """A LossKwargs-style ImportError must surface the ADVERSARY_REVISION hint."""
+    err = ImportError("cannot import name 'LossKwargs' from 'transformers.utils'")
+    with patch("transformers.AutoTokenizer.from_pretrained", side_effect=err):
+        with pytest.raises(RuntimeError, match="ADVERSARY_REVISION"):
+            HeldOutPhi4Adversary(model_name="microsoft/Phi-4-mini-instruct", load_model=True, strict=True)
+
+
 @pytest.mark.parametrize(
     "prediction,truth,expected",
     [
