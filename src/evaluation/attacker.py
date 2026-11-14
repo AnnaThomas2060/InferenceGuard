@@ -469,14 +469,26 @@ class HeldOutPhi4Adversary:
         model: Optional[Any] = None,
         tokenizer: Optional[Any] = None,
         load_model: bool = False,
+        strict: bool = False,
     ):
-        """Initialize adversary with optional model and tokenizer injection for offline tests."""
+        """Initialize adversary with optional model and tokenizer injection for offline tests.
+
+        With ``strict=True`` a failure to load the tokenizer or model re-raises
+        the underlying exception (preserving its real message) instead of
+        silently falling back to ``mode="heuristic"``. Callers that must report
+        genuine held-out numbers (the ``use_heavy_models`` path in
+        :mod:`src.evaluation.run`) pass ``strict=True`` so a load failure
+        surfaces its true cause (e.g. a ``trust_remote_code`` error, a missing
+        ``accelerate`` dependency, or a CUDA OOM) rather than being masked by the
+        downstream "resolved to mode='heuristic'" gate.
+        """
         import torch
         from src.contracts.schemas import AttributeName
         from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
+        self.strict = strict
 
         if tokenizer is not None:
             self.tokenizer = tokenizer
@@ -484,8 +496,13 @@ class HeldOutPhi4Adversary:
             try:
                 from transformers import AutoTokenizer
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-            except Exception:
+            except Exception as e:
                 self.tokenizer = None
+                if self.strict:
+                    raise RuntimeError(
+                        f"strict adversary could not load tokenizer for {model_name}: {e}"
+                    ) from e
+                logger.warning(f"Could not load tokenizer for {model_name}: {e}. Operating in heuristic mode.")
         else:
             self.tokenizer = None
 
@@ -500,8 +517,13 @@ class HeldOutPhi4Adversary:
                     device_map="auto" if self.device == "cuda" else None,
                     trust_remote_code=True,
                 ).eval()
-            except Exception:
+            except Exception as e:
                 self.model = None
+                if self.strict:
+                    raise RuntimeError(
+                        f"strict adversary could not load model {model_name}: {e}"
+                    ) from e
+                logger.warning(f"Could not load model {model_name}: {e}. Operating in heuristic mode.")
         else:
             self.model = None
 

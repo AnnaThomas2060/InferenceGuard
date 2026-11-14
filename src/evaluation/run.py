@@ -321,6 +321,7 @@ def run_comparative_benchmark(
     adversary = HeldOutPhi4Adversary(
         model_name=adversary_model_id,
         load_model=use_heavy_models,
+        strict=use_heavy_models,
     )
     # Wire the risk predictor only in the heavy-model path; the comparative
     # harness does not consume it directly today, but loading it here asserts the

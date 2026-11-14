@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.evaluation.attacker import ATTRIBUTES, Phi4MiniAttacker
+from src.evaluation.attacker import ATTRIBUTES, HeldOutPhi4Adversary, Phi4MiniAttacker
 from src.evaluation.run import StagedEvaluator
 
 torch = pytest.importorskip("torch")
@@ -122,6 +122,22 @@ def test_strict_raises_on_generation_failure():
     attacker = _attacker_with(FakeModel(fail=True), strict=True)
     with pytest.raises(RuntimeError, match="generation failed"):
         attacker.predict_attribute("text", "age")
+
+
+def test_heldout_strict_raises_on_load_failure():
+    """A strict HeldOutPhi4Adversary must surface the real load error, not fall
+    back to mode='heuristic' (the defect behind the run.py strict gate firing)."""
+    with patch("transformers.AutoTokenizer.from_pretrained", side_effect=OSError("trust_remote_code required")):
+        with pytest.raises(RuntimeError, match="could not load"):
+            HeldOutPhi4Adversary(model_name="bogus/does-not-exist", load_model=True, strict=True)
+
+
+def test_heldout_non_strict_load_failure_falls_back_to_heuristic():
+    """Without strict, a load failure is tolerated and reported via mode."""
+    with patch("transformers.AutoTokenizer.from_pretrained", side_effect=OSError("trust_remote_code required")), \
+         patch("transformers.AutoModelForCausalLM.from_pretrained", side_effect=OSError("trust_remote_code required")):
+        adversary = HeldOutPhi4Adversary(model_name="bogus/does-not-exist", load_model=True, strict=False)
+    assert adversary.mode == "heuristic"
 
 
 @pytest.mark.parametrize(
