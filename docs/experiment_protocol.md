@@ -851,29 +851,31 @@ install is the most common cause of a non-reportable run.
   non-reportable number rather than writing a misleading report. The fix is:
   `pip install -U "bitsandbytes>=0.46.1" accelerate`, set `HF_TOKEN`, then restart
   the runtime so the heavy models load under GPU.
-- **Phi-4-mini remote code can be incompatible with very new transformers.** The
-  adversary loads `microsoft/Phi-4-mini-instruct` with `trust_remote_code=True`,
-  which executes the model's hub-hosted `modeling_phi3.py`. That file imports
-  symbols from `transformers.utils` whose availability changes across releases;
-  for example transformers 5.x removed `LossKwargs`, so a load fails with
-  `ImportError: cannot import name 'LossKwargs' from 'transformers.utils'`. The
-  fix is to set the `ADVERSARY_REVISION` env var to a Phi-4-mini-instruct commit
-  whose remote code matches your installed transformers, then re-run (no code
-  change needed):
+- **Phi-4-mini loads via native transformers support (no remote code by default).**
+  `microsoft/Phi-4-mini-instruct`'s bundled `modeling_phi3.py` imports the
+  `LossKwargs` symbol (around line 38, from `transformers.utils`) that was removed
+  in transformers>=5.0, so executing that remote file fails with
+  `ImportError: cannot import name 'LossKwargs' from 'transformers.utils'`. That
+  file was only ever committed once and is present on every revision, so **no
+  Phi-4-mini-instruct revision fixes it**; pinning `ADVERSARY_REVISION` cannot
+  resolve the incompatibility. Because Phi-4-mini uses the `phi3` architecture
+  that modern transformers supports natively, the harness now loads the adversary
+  with `trust_remote_code=False` by default: transformers uses its own built-in
+  `phi3` implementation (works on transformers 5.x) and never touches the broken
+  remote file. No env var is needed for this fix; just run:
 
   ```bash
-  ADVERSARY_REVISION=<phi4-mini-instruct commit compatible with your transformers> \
   RISK_MODEL_ID=AT707/inferenceguard-modernbert-risk \
   REWRITER_MODEL_ID=AT707/inferenceguard-rewriter-v1 \
   python -m src.evaluation.run --split test --use_heavy_models --multiturn --matrix_markdown
   ```
 
-  To find a compatible revision, open the model's **Files and versions** history
-  on the Hub and pick a commit whose `modeling_phi3.py` does not import the symbol
-  your transformers lacks. This is preferable to downgrading transformers, which
-  can be hard to achieve on Python 3.13 (editable install / torchvision wheel
-  friction). Downgrading to a transformers version that still provides the symbol
-  is the alternative if a compatible revision is not available.
+  The `ADVERSARY_TRUST_REMOTE_CODE` env var exists to opt back into remote code
+  (`ADVERSARY_TRUST_REMOTE_CODE=1`) only if you ever need it, but doing so on
+  transformers>=5.0 reintroduces the `LossKwargs` `ImportError`, so leave it unset
+  (the default is `False`). `ADVERSARY_REVISION` remains available as a secondary
+  revision pin but, per the finding above, does not help with the `LossKwargs`
+  incompatibility.
 - **The strict guard is intended.** The harness raising a `RuntimeError` on any
   heuristic fallback (under `--use_heavy_models`) is deliberate behavior and must
   NOT be weakened or bypassed. Emitting a number from a heuristic adversary would

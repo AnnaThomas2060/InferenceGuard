@@ -1,8 +1,12 @@
 """Phi-4-mini held-out adversary module for inferential privacy probing.
 
 Uses microsoft/Phi-4-mini-instruct as an independent, held-out model to avoid
-the closed-loop Goodhart evaluation trap. Formats adversarial deduction prompts
-across age, location, occupation, and education, with strict and lenient response parsers.
+the closed-loop Goodhart evaluation trap. The adversary loads via transformers'
+native ``phi3`` support with ``trust_remote_code=False`` by default, so it does
+not download or execute the model's bundled remote ``modeling_phi3.py`` (which
+imports the ``LossKwargs`` symbol removed in transformers>=5.0). Remote code is
+only used if explicitly opted into. Formats adversarial deduction prompts across
+age, location, occupation, and education, with strict and lenient response parsers.
 
 Every result carries a ``mode`` field: ``"model"`` when the answer came from the
 loaded LLM, ``"heuristic"`` when it came from the regex fallback. Only ``"model"``
@@ -458,11 +462,13 @@ def _word_tokens(text: str) -> List[str]:
 def _transformers_version_hint(e: Exception) -> str:
     """Return an actionable hint if ``e`` looks like a transformers-vs-remote-code mismatch.
 
-    Phi-4-mini-instruct's ``modeling_phi3.py`` (run under ``trust_remote_code``)
-    imports symbols from ``transformers.utils`` whose availability changes across
-    transformers releases (e.g. ``LossKwargs`` existed in ~4.46-4.49 and was
-    removed in 5.x). When the load failure is that class of ImportError, point
-    the user at the ``ADVERSARY_REVISION`` lever. Returns ``""`` otherwise.
+    Phi-4-mini-instruct's bundled ``modeling_phi3.py`` (run under
+    ``trust_remote_code=True``) imports ``LossKwargs`` from ``transformers.utils``,
+    a symbol removed in transformers>=5.0, and no Phi-4-mini revision drops that
+    import. The adversary therefore defaults to ``trust_remote_code=False`` and
+    uses transformers' native ``phi3`` implementation, so this error means
+    something forced remote code back on. When the load failure is that class of
+    ImportError, point the user at disabling remote code. Returns ``""`` otherwise.
     """
     if not isinstance(e, ImportError):
         return ""
@@ -471,12 +477,13 @@ def _transformers_version_hint(e: Exception) -> str:
     if not matched:
         return ""
     return (
-        " This looks like a transformers-vs-remote-code version mismatch: the "
-        "model's remote modeling code imports a transformers symbol not present "
-        "in your installed transformers. Either set the ADVERSARY_REVISION env "
-        "var to a Phi-4-mini-instruct commit whose remote code is compatible "
-        "with your installed transformers, or install a transformers version "
-        "that still provides the symbol."
+        " This adversary defaults to trust_remote_code=False and uses "
+        "transformers' native phi3 support; this error means remote code was "
+        "forced back on. Remove any ADVERSARY_TRUST_REMOTE_CODE=1 override: "
+        "Phi-4-mini-instruct's remote modeling_phi3.py imports LossKwargs "
+        "(removed in transformers>=5.0) and no revision fixes it. (As a secondary "
+        "lever, ADVERSARY_REVISION pins a hub revision, but no Phi-4-mini revision "
+        "drops the LossKwargs import, so it cannot resolve this on transformers>=5.0.)"
     )
 
 
@@ -497,6 +504,7 @@ class HeldOutPhi4Adversary:
         load_model: bool = False,
         strict: bool = False,
         revision: Optional[str] = None,
+        trust_remote_code: Optional[bool] = None,
     ):
         """Initialize adversary with optional model and tokenizer injection for offline tests.
 
@@ -509,14 +517,26 @@ class HeldOutPhi4Adversary:
         ``accelerate`` dependency, or a CUDA OOM) rather than being masked by the
         downstream "resolved to mode='heuristic'" gate.
 
-        ``revision`` pins which hub revision of the model's remote code is
-        executed under ``trust_remote_code=True``. Its effective value is
-        resolved as explicit ``revision`` arg -> ``ADVERSARY_REVISION`` env var
-        -> ``None`` (latest). This lets the user select a
-        Phi-4-mini-instruct commit whose ``modeling_phi3.py`` is compatible with
-        their installed transformers (e.g. one that does not import the
-        ``LossKwargs`` symbol removed in transformers 5.x) without any further
-        code change.
+        ``trust_remote_code`` controls whether the model's hub-hosted
+        ``modeling_phi3.py`` is downloaded and executed. Its effective value is
+        resolved as explicit ``trust_remote_code`` arg (if not ``None``) ->
+        ``ADVERSARY_TRUST_REMOTE_CODE`` env var (``"1"/"true"/"yes"/"on"`` ->
+        True, anything else incl. unset -> False) -> ``False`` by default. The
+        default of ``False`` is the core fix: Phi-4-mini-instruct uses the
+        ``phi3`` architecture natively supported by modern transformers, so the
+        adversary uses that built-in implementation and never executes the
+        bundled remote ``modeling_phi3.py`` (which imports the ``LossKwargs``
+        symbol removed in transformers>=5.0 and would break the load). Opt back
+        into remote code only if you know your transformers version is
+        compatible with it.
+
+        ``revision`` is a secondary lever that pins which hub revision is loaded.
+        Its effective value is resolved as explicit ``revision`` arg ->
+        ``ADVERSARY_REVISION`` env var -> ``None`` (latest). Note that no
+        Phi-4-mini-instruct revision drops the ``LossKwargs`` import, so pinning
+        a revision cannot by itself make the remote code load under
+        transformers>=5.0; prefer leaving ``trust_remote_code`` at its ``False``
+        default.
         """
         import torch
         from src.contracts.schemas import AttributeName
@@ -526,6 +546,13 @@ class HeldOutPhi4Adversary:
         self.model_name = model_name
         self.strict = strict
         self.revision = revision if revision is not None else os.getenv("ADVERSARY_REVISION")
+        if trust_remote_code is not None:
+            self.trust_remote_code = trust_remote_code
+        else:
+            self.trust_remote_code = (
+                os.getenv("ADVERSARY_TRUST_REMOTE_CODE", "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
 
         if tokenizer is not None:
             self.tokenizer = tokenizer
@@ -533,7 +560,7 @@ class HeldOutPhi4Adversary:
             try:
                 from transformers import AutoTokenizer
                 self.tokenizer = AutoTokenizer.from_pretrained(
-                    model_name, trust_remote_code=True, revision=self.revision
+                    model_name, trust_remote_code=self.trust_remote_code, revision=self.revision
                 )
             except Exception as e:
                 self.tokenizer = None
@@ -555,7 +582,7 @@ class HeldOutPhi4Adversary:
                     model_name,
                     torch_dtype=torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float32,
                     device_map="auto" if self.device == "cuda" else None,
-                    trust_remote_code=True,
+                    trust_remote_code=self.trust_remote_code,
                     revision=self.revision,
                 ).eval()
             except Exception as e:
