@@ -900,5 +900,20 @@ The result counts as the north-star held-out number only when
 committed with those flags true, the north-star number remains **PENDING GPU
 EXECUTION** and no value may be reported.
 
+### Runtime progress and expected duration
+
+- The heavy run processes samples sequentially, and each sample runs several LLM
+  generations (rewriter plus the Phi-4-mini adversary), so it is not fast. Expect
+  minutes for `--limit 50` and roughly 1-4 hours for the full `test` split on an
+  A100. Run a small `--limit N` smoke check first to confirm the run is
+  reportable before launching the full split.
+- A `tqdm` progress bar (one bar per method, with throughput and ETA) and a
+  device banner now print at startup. Confirm the banner reports `cuda` and the
+  A100 name rather than CPU, and watch `nvidia-smi` in a second cell for
+  `GPU-Util > 0` to confirm the GPU is actually working.
+- Set `IG_REQUIRE_CUDA=1` to make the run fail fast with a clear error when CUDA
+  is unavailable, instead of silently falling back to a very slow CPU run. It is
+  unset by default, so CPU environments are unaffected.
+
 
 

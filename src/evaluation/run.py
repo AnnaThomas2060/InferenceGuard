@@ -339,6 +339,84 @@ def run_comparative_benchmark(
     else:
         rewriter = QwenPrivacyRewriterService(base_model_name=rewriter_model_id)
 
+    # Device safety gate (opt-in): under --use_heavy_models, refuse to run the
+    # long held-out benchmark on CPU when IG_REQUIRE_CUDA is set truthy. The
+    # default (unset) keeps the current behavior so environments that intend CPU
+    # are unaffected. Checked BEFORE the long loop so it fails fast instead of
+    # after dozens of minutes. Bool parsing mirrors ADVERSARY_TRUST_REMOTE_CODE.
+    if use_heavy_models and os.getenv("IG_REQUIRE_CUDA", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        import torch
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "IG_REQUIRE_CUDA=1 but torch.cuda.is_available() is False; "
+                "refusing to run the heavy held-out benchmark on CPU - fix the "
+                "torch/CUDA install (or unset IG_REQUIRE_CUDA to allow CPU)."
+            )
+
+    # One-time startup banner (heavy path only): surface where each heavy
+    # component actually resolved so a silent CPU fallback cannot be mistaken
+    # for a slow GPU run. Printed to stdout with flush=True because Colab does
+    # not always surface logger output. Fully guarded so it can never break the
+    # run.
+    if use_heavy_models:
+        try:
+            import torch
+
+            cuda_ok = torch.cuda.is_available()
+            print("=" * 78, flush=True)
+            print("[InferenceGuard] Heavy held-out benchmark starting", flush=True)
+            print(f"[InferenceGuard] torch.cuda.is_available() = {cuda_ok}", flush=True)
+            if cuda_ok:
+                try:
+                    print(
+                        f"[InferenceGuard] CUDA device = {torch.cuda.get_device_name(0)}",
+                        flush=True,
+                    )
+                except Exception:
+                    pass
+
+            def _resolve_component_device(obj: Any) -> str:
+                dev = getattr(obj, "device", None)
+                model = getattr(obj, "model", None)
+                param_dev = None
+                if model is not None:
+                    try:
+                        param_dev = str(next(model.parameters()).device)
+                    except Exception:
+                        param_dev = None
+                if param_dev is not None:
+                    return f"{dev} (params on {param_dev})"
+                return str(dev)
+
+            print(
+                f"[InferenceGuard] risk_predictor device = {_resolve_component_device(risk_predictor)}",
+                flush=True,
+            )
+            print(
+                f"[InferenceGuard] adversary device = {_resolve_component_device(adversary)}",
+                flush=True,
+            )
+            print(
+                f"[InferenceGuard] rewriter device = {_resolve_component_device(rewriter)}",
+                flush=True,
+            )
+            if not cuda_ok:
+                print(
+                    "[InferenceGuard] WARNING: CUDA is NOT available - heavy models "
+                    "are running on CPU and the benchmark will be very slow. Set "
+                    "IG_REQUIRE_CUDA=1 to fail fast instead of running on CPU.",
+                    flush=True,
+                )
+            print("=" * 78, flush=True)
+        except Exception:
+            pass
+
     attacker_mode = getattr(adversary, "mode", "heuristic")
     # Strict held-out gate: a real-model run that silently fell back to the
     # heuristic must NOT emit a report that could be mistaken for held-out
@@ -353,16 +431,26 @@ def run_comparative_benchmark(
             "installed."
         )
 
+    # Lazy import so the module still imports in environments without tqdm;
+    # tqdm is already a project dependency (see src/risk_model/train.py).
+    from tqdm.auto import tqdm
+
     comparative_results: Dict[str, Any] = {}
 
     for method in methods:
         logger.info(f"Evaluating method: {method} across {len(records)} samples")
+        # Also print the method boundary to stdout (flushed) so Colab shows
+        # progress even when logger output is not surfaced.
+        print(
+            f"[InferenceGuard] Evaluating method: {method} across {len(records)} samples",
+            flush=True,
+        )
         method_predictions: Dict[AttributeName, List[str]] = {attr: [] for attr in AttributeName}
         ground_truth: Dict[AttributeName, List[str]] = {attr: [] for attr in AttributeName}
         utility_scores: List[Dict[str, float]] = []
         latencies: List[float] = []
 
-        for rec in records:
+        for rec in tqdm(records, desc=f"{method} ({len(records)} samples)", unit="sample"):
             orig_text = rec.get("text", "")
             state = ConversationState(conversation_id=f"eval_{method}")
 
