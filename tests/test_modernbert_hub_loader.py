@@ -215,6 +215,70 @@ def test_sidecar_head_size_mismatch_falls_back_loudly(multitask_checkpoint, patc
     assert any(occupation in m for m in messages)
 
 
+def test_detected_multitask_env_failure_raises_not_untrained(multitask_checkpoint, monkeypatch, caplog):
+    """A detected multitask checkpoint that fails to load for an ENVIRONMENT reason must fail loudly.
+
+    The user's run detected multitask_heads.pt for the Hub repo but the ModernBERT
+    encoder build raised ``RuntimeError: ... No module named 'torchvision.ops' ...``
+    (a broken torchvision breaking transformers' lazy vision imports). Previously the
+    broad ``except Exception`` swallowed this and degraded to an UNTRAINED
+    RobertaRiskClassifier, serving random risk scores after a 40-minute run. Branch (b)
+    now re-raises non-ValueError failures with the real cause instead of falling through.
+    """
+    tmp_path, _ = multitask_checkpoint
+
+    def boom(*a, **k):
+        raise RuntimeError(
+            "Failed to import transformers.models.timm_wrapper.configuration_timm_wrapper "
+            "... No module named 'torchvision.ops'; 'torchvision' is not a package"
+        )
+
+    monkeypatch.setattr(model_module, "_load_multitask_modernbert", boom)
+
+    from src.risk_model.roberta_model import RobertaRiskClassifier
+
+    with caplog.at_level(logging.ERROR, logger="src.risk_model.model"):
+        with pytest.raises(RuntimeError) as excinfo:
+            load_risk_classifier(str(tmp_path), device="cpu")
+
+    # Actionable message that names the environment cause and refuses to degrade.
+    assert "could not load it due to an environment" in str(excinfo.value)
+    assert "torchvision" in str(excinfo.value)
+    # The original exception is preserved as the cause.
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    # It did NOT silently build the untrained RoBERTa fallback.
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("UNTRAINED" in m for m in messages)
+
+
+def test_detected_multitask_value_error_falls_through(multitask_checkpoint, monkeypatch, caplog):
+    """A ValueError from _load_multitask_modernbert (arch mismatch) still falls through to the next format.
+
+    ValueError is the "these weights are genuinely not this architecture" signal, so the
+    loader must keep its legacy behavior: log and continue to RoBERTa / the loud untrained
+    fallback, rather than raising.
+    """
+    tmp_path, _ = multitask_checkpoint
+
+    def arch_mismatch(*a, **k):
+        raise ValueError(
+            "multitask_heads.pt did not match MultiTaskModernBERTRiskModel "
+            "(no classifier/attention_pooler keys loaded)."
+        )
+
+    monkeypatch.setattr(model_module, "_load_multitask_modernbert", arch_mismatch)
+
+    from src.risk_model.roberta_model import RobertaRiskClassifier
+
+    with caplog.at_level(logging.WARNING, logger="src.risk_model.model"):
+        loaded = load_risk_classifier(str(tmp_path), device="cpu")
+
+    # Fell through to the loud untrained RoBERTa fallback instead of raising.
+    assert isinstance(loaded, RobertaRiskClassifier)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("falling through to other formats" in m for m in messages)
+
+
 def test_unknown_layout_falls_back_loudly(tmp_path, caplog):
     """Test C: an unrecognized/empty layout still hits the loud untrained fallback naming files found."""
     empty_dir = tmp_path / "unknown-layout"

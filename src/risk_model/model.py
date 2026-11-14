@@ -546,14 +546,39 @@ def load_risk_classifier(
     ):
         try:
             return _load_multitask_modernbert(model_name_or_path, device=device)
-        except Exception as exc:
-            # Mis-matched/unreadable multitask weights: fall through to try RoBERTa,
-            # then the loud fallback. Log so this is debuggable.
+        except ValueError as exc:
+            # ValueError is the architecture-mismatch signal from
+            # _load_multitask_modernbert (no classifier/attention_pooler keys
+            # loaded, or a sidecar head-size mismatch): these weights genuinely
+            # are not this format, so fall through to try RoBERTa and then the
+            # loud untrained fallback. Log so this is debuggable.
             logging.getLogger(__name__).warning(
                 "multitask_heads.pt detected for '%s' but could not be loaded (%s: %s); "
                 "falling through to other formats.",
                 model_name_or_path, type(exc).__name__, exc,
             )
+        except Exception as exc:
+            # Any other exception (ImportError, ModuleNotFoundError, RuntimeError,
+            # OSError, FileNotFoundError, ...) means the weights ARE the detected
+            # multitask format but the ENVIRONMENT/LOADING failed (e.g. a broken
+            # torchvision breaks transformers' lazy vision imports, or a download
+            # failed). Silently degrading to an UNTRAINED model would serve random
+            # risk scores, so fail fast with the real cause instead of falling
+            # through. (ValueError == "not this format"; everything else == a
+            # detected-but-unloadable trained checkpoint.)
+            logging.getLogger(__name__).error(
+                "multitask_heads.pt detected for '%s' but could not be loaded due to an "
+                "environment/dependency error (%s: %s); refusing to fall back to an "
+                "untrained model.",
+                model_name_or_path, type(exc).__name__, exc,
+            )
+            raise RuntimeError(
+                f"Detected a trained multitask risk checkpoint (multitask_heads.pt) for "
+                f"'{model_name_or_path}' but could not load it due to an "
+                f"environment/dependency error: {exc}. Refusing to fall back to an untrained "
+                f"model. Fix the environment (e.g. a broken torchvision breaks transformers' "
+                f"lazy vision imports) and retry."
+            ) from exc
 
     # (c) RoBERTa / HF-standard format.
     try:
