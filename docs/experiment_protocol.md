@@ -882,6 +882,19 @@ install is the most common cause of a non-reportable run.
   violate the held-out evidence requirement; the only correct response is to fix
   the environment so the real models load.
 
+### Attacker scoring: ground truth is normalized to the taxonomy label space
+
+The test split stores ground truth as free text (`age: "41"`,
+`location: "Bangkok, Thailand"`, `education: "Masters in Business Administration"`,
+`occupation: "business consultant"`), while the held-out adversary predicts the
+coarse taxonomy labels (`35-44`, `asia_pacific`, `master`, `business_finance`).
+`compute_method_metrics` now collapses the free-text ground truth into the
+taxonomy label space via `normalize_to_taxonomy_label` before comparing, so a
+correct coarse inference is counted. A blank or missing ground-truth value maps
+to `UNKNOWN` and is excluded from the per-attribute denominator. Values already
+stored as taxonomy labels pass through unchanged, so the inline smoke records are
+unaffected.
+
 ### Output files (under `reports/`)
 
 - `comparative_benchmark_test.json`: the per-method matrix plus the top-level
