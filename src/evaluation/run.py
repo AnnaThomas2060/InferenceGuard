@@ -332,8 +332,17 @@ def run_comparative_benchmark(
         from src.risk_model.predict import CalibratedRiskPredictor
 
         risk_predictor = CalibratedRiskPredictor.from_pretrained(risk_model_id)
+        # Attach the QLoRA adapter so prompt_baseline and qlora_sft actually
+        # diverge: protect(mode=PROMPT_BASELINE) toggles self.model.disable_adapter()
+        # to get the base-model rewrite, while mode=BALANCED_SFT keeps the adapter
+        # engaged. Without an adapter_dir the service had has_adapter=False, so
+        # both modes ran the identical model and every method collapsed onto raw.
+        # Falls back to the plain model when the adapter dir is absent (the local
+        # weights are not committed; set REWRITER_ADAPTER_DIR to point at them).
+        adapter_dir = os.getenv("REWRITER_ADAPTER_DIR", "artifacts/rewriter_qlora")
         rewriter = QwenPrivacyRewriterService(
             base_model_name=rewriter_model_id,
+            adapter_dir=adapter_dir,
             load_model=True,
         )
     else:
@@ -562,6 +571,7 @@ def run_comparative_benchmark(
                 input_file=multiturn_input_file,
                 use_heavy_models=use_heavy_models,
                 output_dir=output_dir,
+                adversary=adversary,
             )
             benchmark_payload["conversation_aware"] = {
                 "attacker_mode": mt_payload.get("attacker_mode"),

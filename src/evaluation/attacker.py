@@ -652,28 +652,104 @@ class HeldOutPhi4Adversary:
         return self._parse_and_normalize(gen_text)
 
     @staticmethod
-    def _parse_and_normalize(raw_output: str) -> Dict[Any, str]:
-        """Extract JSON substring and match values against official attribute taxonomy."""
-        import json
-        from src.contracts.schemas import AttributeName
-        from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY
+    def _extract_attribute_values(raw_output: str) -> Dict[str, str]:
+        """Pull age/location/occupation/education values out of a model answer.
 
-        match = re.search(r"\{.*\}", raw_output, flags=re.DOTALL)
-        parsed = {}
-        if match:
+        build_attack_prompt asks for a single JSON object with the four
+        attribute keys, but instruction-tuned models routinely wrap it in prose,
+        emit more than one brace group, or answer in free text. This extractor
+        is deliberately forgiving:
+
+        1. Try the greedy ``{...}`` span, then every non-greedy ``{...}`` span,
+           as JSON and keep the first that parses to a dict.
+        2. If no JSON parses, fall back to per-key ``"age": "..."`` regex scrape
+           so a lightly-malformed object still yields values.
+
+        Returns a dict keyed by the lower-case attribute name; missing keys are
+        simply absent.
+        """
+        import json
+
+        def _coerce(obj: Any) -> Dict[str, str]:
+            if not isinstance(obj, dict):
+                return {}
+            return {
+                str(k).strip().lower(): ("" if v is None else str(v))
+                for k, v in obj.items()
+            }
+
+        candidates: List[str] = []
+        greedy = re.search(r"\{.*\}", raw_output, flags=re.DOTALL)
+        if greedy:
+            candidates.append(greedy.group(0))
+        candidates.extend(re.findall(r"\{[^{}]*\}", raw_output, flags=re.DOTALL))
+
+        for cand in candidates:
             try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                parsed = {}
+                parsed = json.loads(cand)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            coerced = _coerce(parsed)
+            if coerced:
+                return coerced
+
+        # No parseable JSON object: scrape "key": "value" pairs directly.
+        scraped: Dict[str, str] = {}
+        for attr in ("age", "location", "occupation", "education"):
+            m = re.search(
+                rf'["\']?{attr}["\']?\s*[:=]\s*["\']?([^"\'\n,}}]+)',
+                raw_output,
+                flags=re.IGNORECASE,
+            )
+            if m:
+                scraped[attr] = m.group(1).strip()
+        return scraped
+
+    @staticmethod
+    def _parse_and_normalize(raw_output: str) -> Dict[Any, str]:
+        """Parse the adversary answer and map each value into taxonomy label space.
+
+        The prompt requests coarse taxonomy labels, but a real model often
+        answers in natural language ("late 20s", "Seattle, WA", "software
+        engineer", "bachelor's"). Matching such free text by literal containment
+        against the coarse labels fails for every attribute and collapses the
+        adversary to all-UNKNOWN (the ~96% abstention / near-zero accuracy
+        regression). So each extracted value is resolved in two stages:
+
+        1. Direct taxonomy match: the value already is (or contains) a canonical
+           label such as "us_west" or "25-34".
+        2. Free-text collapse via ``normalize_to_taxonomy_label`` - the single
+           source of truth that also collapses the free-text ground truth, so a
+           correct natural-language guess lands on the same label the ground
+           truth does and is actually scored as a hit.
+
+        An explicit "unknown"/empty answer stays UNKNOWN (a genuine abstention).
+        """
+        from src.contracts.schemas import AttributeName
+        from src.risk_model.taxonomy import ATTRIBUTE_TAXONOMY, normalize_to_taxonomy_label
+
+        values = HeldOutPhi4Adversary._extract_attribute_values(raw_output)
 
         normalized: Dict[AttributeName, str] = {}
         for attr, valid_labels in ATTRIBUTE_TAXONOMY.items():
-            raw_val = str(parsed.get(attr.value, "UNKNOWN")).strip().lower()
+            raw_val = str(values.get(attr.value, "")).strip()
+            low = raw_val.lower()
+
+            if not low or low in {"unknown", "none", "n/a", "na", "null"}:
+                normalized[attr] = "UNKNOWN"
+                continue
+
+            # Stage 1: the value already is / contains a canonical label.
             matched_label = "UNKNOWN"
             for candidate in valid_labels:
-                if candidate.lower() == raw_val or candidate.lower() in raw_val:
+                if candidate.lower() == low or candidate.lower() in low:
                     matched_label = candidate
                     break
+
+            # Stage 2: collapse free text into the taxonomy label space.
+            if matched_label == "UNKNOWN":
+                matched_label = normalize_to_taxonomy_label(attr, raw_val)
+
             normalized[attr] = matched_label
         return normalized
 

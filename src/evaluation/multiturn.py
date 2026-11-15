@@ -155,6 +155,7 @@ def run_multiturn_leakage_curve(
     use_heavy_models: bool = False,
     output_dir: str = "reports",
     report_filename: str = "multiturn_leakage_curve.json",
+    adversary: Optional["HeldOutPhi4Adversary"] = None,
 ) -> Dict[str, Any]:
     """Drive the leakage tracker over cumulative 1/2/4/8-turn prefixes.
 
@@ -162,6 +163,16 @@ def run_multiturn_leakage_curve(
     tracker fed by the held-out adversary; when the adversary and/or tracker run
     without a trained model the payload is tagged ``reportable_as_held_out =
     False`` and numbers are explicitly pending P0 #1.
+
+    ``adversary`` lets the caller inject an already-constructed adversary so the
+    multi-turn curve reuses the SAME held-out model that produced the per-sample
+    benchmark rows instead of loading a second copy of the 7GB weights. When it
+    is ``None`` the harness constructs its own, loading the real model only when
+    ``use_heavy_models`` is set (strict, so a load failure surfaces rather than
+    silently masquerading as a reportable run). The emitted ``attacker_mode`` /
+    ``reportable_as_held_out`` always reflect the ACTUAL mode of the adversary
+    that produced the curve: a heuristic/fallback adversary is never tagged
+    reportable, so the note and the flags can no longer disagree.
     """
     from src.contracts.schemas import ConversationState
 
@@ -169,8 +180,13 @@ def run_multiturn_leakage_curve(
     out_path.mkdir(parents=True, exist_ok=True)
 
     records = _load_staged_records(input_file)
-    adversary = HeldOutPhi4Adversary(load_model=use_heavy_models)
+    if adversary is None:
+        adversary = HeldOutPhi4Adversary(
+            load_model=use_heavy_models,
+            strict=use_heavy_models,
+        )
     attacker_mode = getattr(adversary, "mode", "heuristic")
+    reportable = attacker_mode == "model"
     tracker = _make_tracker()
 
     requested = sorted({int(t) for t in turn_counts if int(t) >= 1})
@@ -217,20 +233,30 @@ def run_multiturn_leakage_curve(
             }
         )
 
+    if reportable:
+        note = (
+            "Curve numbers come from the held-out Phi-4-mini adversary "
+            "(attacker_mode='model') run over cumulative turn prefixes and are "
+            "reportable as held-out results."
+        )
+    else:
+        note = (
+            "Curve numbers are NON-REPORTABLE: the held-out Phi-4-mini adversary "
+            "resolved to attacker_mode='heuristic' (the real model did not load), "
+            "so these values come from the load_model=False fallback and are "
+            "pending the P0 #1 GPU run."
+        )
+
     payload: Dict[str, Any] = {
         "harness": "multiturn_leakage_curve",
         "turn_counts": list(requested),
         "attacker_model_id": getattr(adversary, "model_name", "microsoft/Phi-4-mini-instruct"),
         "attacker_mode": attacker_mode,
-        "reportable_as_held_out": attacker_mode == "model",
+        "reportable_as_held_out": reportable,
         "tracker_available": tracker is not None,
         "num_profiles": len(profiles_curves),
         "input_file": input_file or DEFAULT_STAGED_INPUT,
-        "note": (
-            "Curve numbers are NON-REPORTABLE until P0 #1 (trained ModernBERT risk "
-            "model + LoRA adapter + held-out Phi-4-mini adversary GPU run) is "
-            "available. Values below come from the load_model=False fallback."
-        ),
+        "note": note,
         "profiles": profiles_curves,
     }
 

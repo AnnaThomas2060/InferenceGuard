@@ -895,6 +895,23 @@ to `UNKNOWN` and is excluded from the per-attribute denominator. Values already
 stored as taxonomy labels pass through unchanged, so the inline smoke records are
 unaffected.
 
+The adversary PREDICTION side is normalized the same way. `build_attack_prompt`
+asks for one JSON object with the four attribute keys, but a real model answers
+in free text (`"late 20s"`, `"Seattle, WA"`, `"software engineer"`). The parser
+now extracts the value robustly (JSON object, else a key:value scrape) and routes
+each value through the same `normalize_to_taxonomy_label`, so a correct
+free-text guess lands on the taxonomy label instead of collapsing to `UNKNOWN`.
+An explicit `"unknown"` answer stays an abstention.
+
+The comparative harness now attaches the QLoRA adapter (`REWRITER_ADAPTER_DIR`,
+default `artifacts/rewriter_qlora`) in the `--use_heavy_models` path, so
+`prompt_baseline` (adapter disabled) and `qlora_sft` (adapter engaged) diverge
+instead of running the same model. The rewriter's rewrite-time system prompt is
+read from `self.system_prompt` (`REWRITER_SYSTEM_PROMPT`); a prior undefined name
+made every real-model rewrite fail and fall back to unchanged text. The
+multi-turn curve reuses the already-loaded adversary and tags
+`reportable_as_held_out` to match that adversary's actual mode.
+
 ### Output files (under `reports/`)
 
 - `comparative_benchmark_test.json`: the per-method matrix plus the top-level
