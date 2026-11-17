@@ -24,11 +24,25 @@ def client():
 
 
 def test_api_health_endpoint(client):
-    """Verify health endpoint returns status ok."""
+    """Verify health endpoint reports actual loaded state.
+
+    /health intentionally reports 'ok' only when a trained/hosted risk model is
+    loaded, and 'degraded' when it falls back to the rule-based estimate (see
+    web.api.health_check and docs/engineering/production-readiness.md section 7).
+    In CI no trained checkpoint/adapter is present, so 'degraded' is the correct,
+    expected status. Both are HTTP 200 (strict mode via IG_REQUIRE_MODEL is a
+    separate, opt-in 503 path). Assert the contract, not a hardcoded 'ok'.
+    """
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "ok"
+    assert data["status"] in {"ok", "degraded"}
+    # status must agree with whether a real model loaded.
+    expected_status = "ok" if data["risk_model_loaded"] else "degraded"
+    assert data["status"] == expected_status
+    assert data["risk_model_source"] == (
+        "model" if data["risk_model_loaded"] else "fallback_rule_based"
+    )
     assert "version" in data
 
 
